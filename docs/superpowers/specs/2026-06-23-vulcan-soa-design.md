@@ -40,6 +40,9 @@ An EHR user (research/study coordinator or treating clinician/investigator) need
   distinguishes them, the user — not the engine — chooses.
 - Track progress by writing back to standard FHIR workflow resources (`Encounter`, `Task`, `Appointment`,
   `CarePlan`), tagged to their originating `PlanDefinition.action.id` for traceability.
+- Make the backend's target FHIR server — base URL, OAuth authorize/token endpoints, and SMART client
+  credentials — swappable via configuration, with no code changes. Needed to run against both a local dev Aidbox
+  and the separate public Aidbox instance used for the HL7 connectathon.
 
 ## Non-goals
 
@@ -100,11 +103,27 @@ refinement.
   passing arbitrary resource context, e.g. a `ResearchStudy` reference), plus a standalone launch for the
   general worklist when there's no incoming context. Holds the FHIR access/refresh token server-side, keyed to
   the session.
-- **Aidbox (FHIR R6 ballot)**: system of record, run locally, targeted at FHIR R6 ballot to match the IG exactly
-  (see Risks). Hosts both the SoA definitions (read-only from this app's perspective) and all per-subject
-  instance data.
+- **Aidbox (FHIR R6 ballot)**: system of record, targeted at FHIR R6 ballot to match the IG exactly (see Risks).
+  Hosts both the SoA definitions (read-only from this app's perspective) and all per-subject instance data. Which
+  Aidbox instance — local dev or the connectathon's public cloud instance — is a matter of configuration (see
+  Environments below), not code.
 - The **SoA graph engine** is a self-contained, FHIR-server-agnostic module (plain JSON in, computed
   schedule/decision-support state out), independently testable against the IG's own bundled examples.
+
+## Environments & target server configuration
+
+The app must run unmodified against more than one FHIR server: a local dev Aidbox today, and a separate
+cloud-hosted Aidbox instance (`xfztpxesfy.edge.aidbox.app`) for the HL7 connectathon, configured the same way
+(FHIR R6 ballot, Vulcan SoA V2 IG loaded). Both are Aidbox, so no server-specific branching is needed in code —
+only configuration:
+
+- `FHIR_BASE_URL`, `OAUTH_AUTHORIZE_URL`, `OAUTH_TOKEN_URL`, `SMART_CLIENT_ID`, `SMART_CLIENT_SECRET`,
+  `REDIRECT_URI` are read from environment/`.env` files (e.g. `.env.local`, `.env.connectathon`), never
+  hardcoded in `auth` or `fhir_client`.
+- Switching target server means switching which env file the backend starts with (deploy-time/restart
+  configuration), not a live in-app toggle — simpler, and sufficient for both dev and connectathon use.
+- This is standard 12-factor configuration, not a new architectural component — called out explicitly here
+  because the original design implicitly assumed a single, local Aidbox.
 
 ## Components
 
@@ -185,20 +204,26 @@ refinement.
 
 ## Assumptions & dependencies
 
-- Aidbox is run locally (already available) and will be targeted at FHIR R6 ballot, matching the IG exactly,
-  per explicit decision. This is a meaningful risk (see below) but is the chosen path.
-- SoA definitions (`ResearchStudy`, `PlanDefinition`, `ActivityDefinition`) are authored and loaded into Aidbox
-  by a separate process; this app only consumes them.
+- Aidbox is run locally for day-to-day dev (already available), and a second, cloud-hosted Aidbox instance
+  (`xfztpxesfy.edge.aidbox.app`) will be used for the HL7 connectathon. Both target FHIR R6 ballot, matching the
+  IG exactly, per explicit decision. This is a meaningful risk (see below) but is the chosen path.
+- SoA definitions (`ResearchStudy`, `PlanDefinition`, `ActivityDefinition`) are authored and loaded into each
+  Aidbox instance by a separate process; this app only consumes them. The Vulcan SoA V2 IG package will be
+  loaded into the connectathon instance ahead of the event.
 - A fuller LZZT protocol implementation will be provided separately (in the IG source repo) as richer test/dev
   data; this app treats it as an external input once available, not something it produces.
+- **The HL7 connectathon is approximately 2 weeks out.** This is a hard external deadline, not just a target —
+  the implementation plan's first milestone should prioritize a connectathon-ready slice (launch against the
+  cloud instance, enroll, view a basic schedule) over completing the full V2 graph engine, so there's a working,
+  demoable app regardless of how far the rest has progressed.
 
 ## Risks / open items
 
 - **R6 ballot instability**: FHIR R6 is not finalized, and Aidbox's R6 support is early. Resource shapes
-  (`ResearchSubject` in particular has changed materially across R4→R5→R6) may shift under us. This should be
-  validated early — first phase of implementation should include a spike that loads the IG's
-  StructureDefinitions and example resources into Aidbox and confirms basic CRUD/search works before deeper
-  engine work proceeds.
+  (`ResearchSubject` in particular has changed materially across R4→R5→R6) may shift under us. Given the
+  connectathon deadline, this is no longer just a risk to validate eventually — the spike that loads the IG's
+  StructureDefinitions and example resources into both Aidbox instances and confirms basic CRUD/search/SMART
+  launch works must happen immediately, before any deeper engine work.
 - **Treatment cycle complexity**: repeating cycles (`soaRepeatAllowed`) with even/odd variation (Use Case 3) are
   the most structurally complex part of the graph engine and may reveal the need for additional modeling beyond
   what's directly inferable from the current extensions.
