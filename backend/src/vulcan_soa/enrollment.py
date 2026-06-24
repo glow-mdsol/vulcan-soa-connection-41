@@ -1,3 +1,5 @@
+import datetime
+
 from vulcan_soa.fhir_client import FhirClient
 from vulcan_soa.scheduling import load_protocol_graph, materialize_visit, schedule_response
 from vulcan_soa.soa_engine.conditions import SubjectContext
@@ -6,14 +8,25 @@ from vulcan_soa.soa_engine.engine import resolve_schedule_state
 RESEARCH_SUBJECT_STATE_SYSTEM = "http://terminology.hl7.org/CodeSystem/research-subject-state"
 
 
+def _today() -> str:
+    return datetime.date.today().isoformat()
+
+
 async def enroll(client: FhirClient, study_id: str, patient_id: str) -> dict:
     graph, plan_definition_id = await load_protocol_graph(client, study_id)
 
+    # R6 ResearchSubject:
+    #   - status (1..1) is bound to PublicationStatus: "active" | "draft" | "retired" | "unknown"
+    #   - subjectState (0..*) is a BackboneElement array: {code: CodeableConcept, startDate: dateTime}
     subject_resource = {
         "resourceType": "ResearchSubject",
-        "subjectState": {
-            "coding": [{"system": RESEARCH_SUBJECT_STATE_SYSTEM, "code": "candidate"}]
-        },
+        "status": "active",
+        "subjectState": [
+            {
+                "code": {"coding": [{"system": RESEARCH_SUBJECT_STATE_SYSTEM, "code": "candidate"}]},
+                "startDate": _today(),
+            }
+        ],
         "study": {"reference": f"ResearchStudy/{study_id}"},
         "subject": {"reference": f"Patient/{patient_id}"},
     }

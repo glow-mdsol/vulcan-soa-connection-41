@@ -56,11 +56,26 @@ services:
       timeout: 5s
       retries: 10
 
+  # Minimal HTTP server that makes the pre-downloaded R6 core package available
+  # to Aidbox without relying on external network access to fs.get-ig.org.
+  pkg-server:
+    image: docker.io/library/nginx:alpine
+    volumes:
+      - ./aidbox/hl7.fhir.r6.core-6.0.0-ballot3.tgz:/usr/share/nginx/html/hl7.fhir.r6.core-6.0.0-ballot3.tgz:ro
+      - ./aidbox/nginx-pkg.conf:/etc/nginx/conf.d/default.conf:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO", "/dev/null", "http://127.0.0.1/-/hl7.fhir.r6.core-6.0.0-ballot3.tgz"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   aidbox:
     image: docker.io/healthsamurai/aidboxone:edge
     pull_policy: always
     depends_on:
       postgres:
+        condition: service_healthy
+      pkg-server:
         condition: service_healthy
     ports:
       - "8888:8080"
@@ -83,6 +98,9 @@ services:
       AIDBOX_LICENSE: ${AIDBOX_LICENSE}
 
       # --- FHIR R6 ballot (6.0.0-ballot3) ---
+      # Point Aidbox at the local pkg-server so it doesn't need to download
+      # the 18 MB R6 core package from the internet on every cold start.
+      BOX_FHIR_PACKAGES_NPM_REGISTRY: "http://pkg-server"
       BOX_BOOTSTRAP_FHIR_PACKAGES: "hl7.fhir.r6.core#6.0.0-ballot3"
       BOX_FHIR_COMPLIANT_MODE: "true"
       BOX_FHIR_CORRECT_AIDBOX_FORMAT: "true"

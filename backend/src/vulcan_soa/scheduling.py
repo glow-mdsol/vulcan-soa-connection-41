@@ -32,10 +32,10 @@ async def materialize_visit(
 async def load_subject_context(
     client: FhirClient, research_subject: dict, plan_definition_id: str
 ) -> tuple[SubjectContext, dict[str, dict]]:
-    state_codes = {
-        coding.get("code") for coding in research_subject.get("subjectState", {}).get("coding", [])
-    }
-    withdrawn = "withdrawn" in state_codes
+    # R6: withdrawal is signalled by status == "retired" (PublicationStatus).
+    # subjectState is an array of BackboneElements with a nested code CodeableConcept
+    # (not a flat coding list), so we no longer look inside it for "withdrawn".
+    withdrawn = research_subject.get("status") == "retired"
     patient_id = research_subject["subject"]["reference"].split("/", 1)[1]
 
     encounters = await client.search(
@@ -57,7 +57,7 @@ async def load_subject_context(
             action_id = value[len(prefix):]
             visited.add(action_id)
             by_action_id[action_id] = encounter
-            if encounter.get("status") == "finished":
+            if encounter.get("status") == "completed":
                 completed.add(action_id)
 
     context = SubjectContext(

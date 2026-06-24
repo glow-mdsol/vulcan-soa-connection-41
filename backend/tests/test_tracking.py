@@ -9,7 +9,8 @@ from vulcan_soa.tracking import complete_visit, withdraw_subject
 SUBJECT = {
     "resourceType": "ResearchSubject",
     "id": "subj-1",
-    "subjectState": {"coding": [{"code": "on-study"}]},
+    # R6: status (PublicationStatus) is "active" for an active subject
+    "status": "active",
     "study": {"reference": "ResearchStudy/study-1"},
     "subject": {"reference": "Patient/patient-1"},
 }
@@ -62,7 +63,8 @@ async def test_withdraw_subject_updates_subject_state():
             json={
                 "resourceType": "ResearchSubject",
                 "id": "subj-1",
-                "subjectState": {"coding": [{"code": "withdrawn"}]},
+                # R6: withdrawn subjects get status "retired"
+                "status": "retired",
             },
         )
     )
@@ -74,7 +76,13 @@ async def test_withdraw_subject_updates_subject_state():
     assert result == {"id": "subj-1", "subjectState": "withdrawn"}
     assert update_route.calls.last.request.headers["If-Match"] == 'W/"5"'
     payload = json.loads(update_route.calls.last.request.content)
-    assert payload["subjectState"]["coding"][0]["code"] == "withdrawn"
+    # R6: withdrawal sets status to "retired"
+    assert payload["status"] == "retired"
+    # and appends an off-study entry to subjectState array
+    assert any(
+        entry.get("code", {}).get("coding", [{}])[0].get("code") == "off-study"
+        for entry in payload.get("subjectState", [])
+    )
 
 
 @respx.mock
@@ -88,7 +96,7 @@ async def test_complete_visit_marks_finished_and_materializes_single_next_step()
     respx.get("http://aidbox.test/fhir/PlanDefinition/plan-1").mock(
         return_value=httpx.Response(200, json=PLAN_DEFINITION)
     )
-    finished_encounter = dict(SCREENING_ENCOUNTER, status="finished")
+    finished_encounter = dict(SCREENING_ENCOUNTER, status="completed")
     respx.get("http://aidbox.test/fhir/Encounter").mock(
         side_effect=[
             httpx.Response(200, json={"resourceType": "Bundle", "entry": [{"resource": SCREENING_ENCOUNTER}]}),
@@ -96,7 +104,7 @@ async def test_complete_visit_marks_finished_and_materializes_single_next_step()
         ]
     )
     update_route = respx.put("http://aidbox.test/fhir/Encounter/enc-1").mock(
-        return_value=httpx.Response(200, json=dict(SCREENING_ENCOUNTER, status="finished"))
+        return_value=httpx.Response(200, json=dict(SCREENING_ENCOUNTER, status="completed"))
     )
     create_route = respx.post("http://aidbox.test/fhir/Encounter").mock(
         return_value=httpx.Response(201, json={"resourceType": "Encounter", "id": "enc-2"})
@@ -107,7 +115,7 @@ async def test_complete_visit_marks_finished_and_materializes_single_next_step()
     await client.close()
 
     assert update_route.called
-    assert json.loads(update_route.calls.last.request.content)["status"] == "finished"
+    assert json.loads(update_route.calls.last.request.content)["status"] == "completed"
     assert create_route.called
     new_encounter_payload = json.loads(create_route.calls.last.request.content)
     assert new_encounter_payload["identifier"] == [

@@ -1,3 +1,5 @@
+import datetime
+
 from vulcan_soa.fhir_client import FhirClient
 from vulcan_soa.scheduling import (
     load_protocol_graph_for_subject,
@@ -10,6 +12,10 @@ from vulcan_soa.soa_engine.engine import resolve_schedule_state
 RESEARCH_SUBJECT_STATE_SYSTEM = "http://terminology.hl7.org/CodeSystem/research-subject-state"
 
 
+def _today() -> str:
+    return datetime.date.today().isoformat()
+
+
 def _if_match(resource: dict) -> str | None:
     version_id = resource.get("meta", {}).get("versionId")
     return f'W/"{version_id}"' if version_id else None
@@ -17,9 +23,16 @@ def _if_match(resource: dict) -> str | None:
 
 async def withdraw_subject(client: FhirClient, subject_id: str) -> dict:
     subject = await client.read("ResearchSubject", subject_id)
-    subject["subjectState"] = {
-        "coding": [{"system": RESEARCH_SUBJECT_STATE_SYSTEM, "code": "withdrawn"}]
-    }
+    # R6: mark publication status as "retired" to signal withdrawal.
+    # Append an off-study subjectState entry (subjectState is 0..* BackboneElement array).
+    existing_states = subject.get("subjectState", [])
+    subject["status"] = "retired"
+    subject["subjectState"] = existing_states + [
+        {
+            "code": {"coding": [{"system": RESEARCH_SUBJECT_STATE_SYSTEM, "code": "off-study"}]},
+            "startDate": _today(),
+        }
+    ]
     updated = await client.update(
         "ResearchSubject", subject_id, subject, if_match=_if_match(subject)
     )
@@ -38,9 +51,11 @@ async def complete_visit(
     if encounter is None:
         raise ValueError(f"No materialized visit found for action {action_id}")
 
-    encounter["status"] = "finished"
+    encounter["status"] = "completed"
     await client.update("Encounter", encounter["id"], encounter, if_match=_if_match(encounter))
 
+    # Re-read subject so we pick up any withdrawal that happened between visits.
+    subject = await client.read("ResearchSubject", subject_id)
     context, _ = await load_subject_context(client, subject, plan_definition_id)
     state = resolve_schedule_state(graph, context)
 

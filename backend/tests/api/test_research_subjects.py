@@ -10,7 +10,8 @@ from vulcan_soa.fhir_client import FhirClient
 SUBJECT = {
     "resourceType": "ResearchSubject",
     "id": "subj-1",
-    "subjectState": {"coding": [{"code": "on-study"}]},
+    # R6: status (PublicationStatus) — "active" for an active subject
+    "status": "active",
     "study": {"reference": "ResearchStudy/study-1"},
     "subject": {"reference": "Patient/patient-1"},
 }
@@ -72,7 +73,8 @@ def test_withdraw_route_updates_subject_state():
             json={
                 "resourceType": "ResearchSubject",
                 "id": "subj-1",
-                "subjectState": {"coding": [{"code": "withdrawn"}]},
+                # R6: withdrawn subjects get status "retired"
+                "status": "retired",
             },
         )
     )
@@ -106,7 +108,7 @@ def test_complete_visit_route_marks_finished_and_returns_schedule():
         "status": "planned",
         "identifier": [{"system": "urn:vulcan-soa:plan-action", "value": "plan-1#screening-1"}],
     }
-    finished_encounter = dict(encounter, status="finished")
+    finished_encounter = dict(encounter, status="completed")
     respx.get("https://aidbox.test/fhir/Encounter").mock(
         side_effect=[
             httpx.Response(200, json={"resourceType": "Bundle", "entry": [{"resource": encounter}]}),

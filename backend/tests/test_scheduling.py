@@ -53,7 +53,7 @@ async def test_load_subject_context_reads_withdrawn_state_and_encounters():
                         "resource": {
                             "resourceType": "Encounter",
                             "id": "enc-1",
-                            "status": "finished",
+                            "status": "completed",
                             "identifier": [
                                 {"system": ACTION_TAG_SYSTEM, "value": "plan-1#action-1"}
                             ],
@@ -76,7 +76,8 @@ async def test_load_subject_context_reads_withdrawn_state_and_encounters():
     client = FhirClient(base_url="http://aidbox.test/fhir", access_token="tok")
     subject = {
         "resourceType": "ResearchSubject",
-        "subjectState": {"coding": [{"code": "withdrawn"}]},
+        # R6: withdrawn is signalled by status == "retired"
+        "status": "retired",
         "subject": {"reference": "Patient/patient-1"},
     }
 
@@ -97,7 +98,8 @@ async def test_load_subject_context_not_withdrawn_when_state_differs():
     client = FhirClient(base_url="http://aidbox.test/fhir", access_token="tok")
     subject = {
         "resourceType": "ResearchSubject",
-        "subjectState": {"coding": [{"code": "on-study"}]},
+        # R6: "active" status means not withdrawn
+        "status": "active",
         "subject": {"reference": "Patient/patient-1"},
     }
 
