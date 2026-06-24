@@ -1,0 +1,130 @@
+# =============================================================================
+# Aidbox R6 ballot — local dev instance for Vulcan SoA
+# =============================================================================
+# Usage:
+#   1. Copy and fill in the env file:
+#        cp docker/.env.example docker/.env
+#      Set AIDBOX_LICENSE to your key from aidbox.app
+#      Optionally change SMART_CLIENT_SECRET (must match backend/.env.local)
+#
+#   2. Start:
+#        docker compose -f docker/docker-compose.yml up -d
+#
+#   3. Wait for healthy (~30–60 s), then:
+#        Aidbox UI  →  http://localhost:8888      (admin / <AIDBOX_ADMIN_PASSWORD>)
+#        FHIR base  →  http://localhost:8888/fhir
+#
+#   4. Load the Vulcan SoA IG and test fixtures (Task 5 from the plan):
+#        cd backend
+#        source .venv/bin/activate
+#        export ENV_FILE=.env.local
+#        python scripts/load_fixtures.py /path/to/Vulcan-schedule-ig/output
+#        python scripts/load_fixtures.py fixtures
+#
+# Credential summary (defaults if not overridden in docker/.env):
+#   Aidbox admin       admin / admin
+#   SMART BFF client   vulcan-soa-bff / change-me
+#   Root client        root / change-me   (used by load_fixtures.py basic-auth)
+#   Postgres           aidbox / aidbox-local-pw
+#
+# The SMART client id and secret must match backend/.env.local:
+#   SMART_CLIENT_ID=vulcan-soa-bff
+#   SMART_CLIENT_SECRET=<value of SMART_CLIENT_SECRET here>
+# =============================================================================
+
+volumes:
+  postgres_data: {}
+
+services:
+  postgres:
+    image: docker.io/library/postgres:16
+    volumes:
+      - postgres_data:/var/lib/postgresql/data:delegated
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+    environment:
+      POSTGRES_USER: aidbox
+      POSTGRES_DB: aidbox
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aidbox-local-pw}
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aidbox"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  aidbox:
+    image: docker.io/healthsamurai/aidboxone:edge
+    pull_policy: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8888:8080"
+    volumes:
+      - ./aidbox:/aidbox-config:ro
+    environment:
+      # --- Database ---
+      BOX_DB_HOST: postgres
+      BOX_DB_PORT: "5432"
+      BOX_DB_DATABASE: aidbox
+      BOX_DB_USER: aidbox
+      BOX_DB_PASSWORD: ${POSTGRES_PASSWORD:-aidbox-local-pw}
+
+      # --- Admin UI ---
+      BOX_ADMIN_PASSWORD: ${AIDBOX_ADMIN_PASSWORD:-admin}
+      BOX_WEB_BASE_URL: http://localhost:8888
+      BOX_WEB_PORT: 8080
+
+      # --- License (required — get yours at https://aidbox.app) ---
+      AIDBOX_LICENSE: ${AIDBOX_LICENSE}
+
+      # --- FHIR R6 ballot (6.0.0-ballot3) ---
+      BOX_BOOTSTRAP_FHIR_PACKAGES: "hl7.fhir.r6.core#6.0.0-ballot3"
+      BOX_FHIR_COMPLIANT_MODE: "true"
+      BOX_FHIR_CORRECT_AIDBOX_FORMAT: "true"
+      BOX_FHIR_SCHEMA_VALIDATION: "true"
+      BOX_FHIR_BUNDLE_EXECUTION_VALIDATION_MODE: limited
+      BOX_COMPATIBILITY_VALIDATION_JSON__SCHEMA_REGEX: "#{:fhir-datetime}"
+
+      # --- Search ---
+      BOX_FHIR_SEARCH_AUTHORIZE_INLINE_REQUESTS: "true"
+      BOX_FHIR_SEARCH_CHAIN_SUBSELECT: "true"
+      BOX_FHIR_SEARCH_COMPARISONS: "true"
+      BOX_SEARCH_INCLUDE_CONFORMANT: "true"
+
+      # --- Terminology ---
+      BOX_FHIR_TERMINOLOGY_ENGINE: hybrid
+      BOX_FHIR_TERMINOLOGY_ENGINE_HYBRID_EXTERNAL_TX_SERVER: https://tx3.health-samurai.io/fhir
+      BOX_FHIR_TERMINOLOGY_SERVICE_BASE_URL: https://tx3.health-samurai.io/fhir
+
+      # --- Security / dev ergonomics ---
+      BOX_SECURITY_DEV_MODE: "true"
+      BOX_SECURITY_AUDIT_LOG_ENABLED: "true"
+      BOX_SETTINGS_MODE: read-write
+      BOX_FHIR_CREATEDAT_URL: https://aidbox.app/ex/createdAt
+
+      # Root client secret — also used by load_fixtures.py for basic auth
+      # (client id is always "root" for the root client)
+      BOX_ROOT_CLIENT_SECRET: ${SMART_CLIENT_SECRET:-change-me}
+
+      # --- Init bundle: bootstraps the SMART confidential client + open
+      #     access policy for dev.  The bundle JSON is in ./aidbox/init-bundle.json
+      #     and is mounted at /aidbox-config inside the container. ---
+      BOX_INIT_BUNDLE: "file:///aidbox-config/init-bundle.json"
+
+      # Expose SMART_CLIENT_SECRET into the container so the init bundle can
+      # reference it via AIDBOX_LICENSE-style env expansion if needed.
+      # (In practice the secret is baked into the JSON below; change docker/.env
+      #  and recreate the container to rotate it.)
+      SMART_CLIENT_SECRET: ${SMART_CLIENT_SECRET:-change-me}
+
+    healthcheck:
+      test: curl -f http://localhost:8080/health || exit 1
+      interval: 5s
+      timeout: 5s
+      retries: 90
+      start_period: 30s
