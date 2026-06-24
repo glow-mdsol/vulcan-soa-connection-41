@@ -1,0 +1,44 @@
+import fs from "node:fs";
+import path from "node:path";
+
+import { expect, test } from "@playwright/test";
+
+const STORAGE_STATE_PATH = path.join(__dirname, ".auth", "session.json");
+const hasBootstrappedSession = fs.existsSync(STORAGE_STATE_PATH);
+
+test("standalone launch redirects to the configured Aidbox authorize endpoint", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("link", { name: "start a standalone launch" }).click();
+  await page.waitForURL(/\/auth\/authorize\?/);
+  expect(page.url()).toContain("response_type=code");
+});
+
+test.describe("authenticated golden path", () => {
+  test.skip(
+    !hasBootstrappedSession,
+    "requires a one-time manual login bootstrap: " +
+      "npx playwright codegen --save-storage=e2e/.auth/session.json http://localhost:5173 " +
+      "(complete the standalone launch + Aidbox login once, then close the browser)",
+  );
+  test.use({ storageState: STORAGE_STATE_PATH });
+
+  test("worklist to enroll to schedule to complete to ambiguous decision prompt", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("link", { name: "Use Case 1 Demo Study (Exit Example)" }).click();
+
+    await page.getByLabel("Patient FHIR ID").fill("uc1-demo-patient");
+    await page.getByRole("button", { name: "Enroll" }).click();
+
+    await expect(page.getByText("0700e721-1f12-4998-89b8-6f4e649b62f7")).toBeVisible();
+    await page.getByRole("button", { name: "Mark complete" }).click();
+
+    await expect(page.getByText("a1806239-54f3-4762-af3f-edb9d80d29dc")).toBeVisible();
+    await page.getByRole("button", { name: "Withdraw subject" }).click();
+    await expect(page.getByText("Subject withdrawn from study.")).toBeVisible();
+
+    await page.getByRole("button", { name: "Mark complete" }).click();
+    await expect(page.getByText("Decision needed")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Day 7" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "End of Study" })).toBeVisible();
+  });
+});
