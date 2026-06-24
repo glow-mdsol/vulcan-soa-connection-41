@@ -1,0 +1,208 @@
+version: "3"
+
+vars:
+  BACKEND_DIR: backend
+  FRONTEND_DIR: frontend
+  DOCKER_COMPOSE: docker/docker-compose.yml
+  ENV_FILE: '{{.ENV_FILE | default ".env.local"}}'
+  VULCAN_IG_OUTPUT_DIR: '{{.VULCAN_IG_OUTPUT_DIR | default (printf "%s/Documents/Devel/hl7/Vulcan-schedule-ig/output" .HOME)}}'
+
+# ─── Aidbox / Docker ────────────────────────────────────────────────────────
+
+tasks:
+  aidbox:up:
+    desc: Start Aidbox + Postgres (detached). First run pulls ~200 MB.
+    cmds:
+      - docker compose -f {{.DOCKER_COMPOSE}} up -d
+    sources:
+      - "{{.DOCKER_COMPOSE}}"
+      - docker/aidbox/init-bundle.json
+
+  aidbox:down:
+    desc: Stop and remove Aidbox containers (data volume preserved).
+    cmds:
+      - docker compose -f {{.DOCKER_COMPOSE}} down
+
+  aidbox:reset:
+    desc: Destroy data volume and restart clean. Wipes all Aidbox state.
+    cmds:
+      - docker compose -f {{.DOCKER_COMPOSE}} down -v
+      - docker compose -f {{.DOCKER_COMPOSE}} up -d
+
+  aidbox:logs:
+    desc: Tail Aidbox container logs.
+    cmds:
+      - docker compose -f {{.DOCKER_COMPOSE}} logs -f aidbox
+
+  aidbox:status:
+    desc: Show health status of all Docker services.
+    cmds:
+      - docker compose -f {{.DOCKER_COMPOSE}} ps
+
+  aidbox:wait:
+    desc: Wait until Aidbox reports healthy (up to 2 minutes).
+    cmds:
+      - |
+        for i in $(seq 1 24); do
+          h=$(docker inspect --format='{{`{{.State.Health.Status}}`}}' docker-aidbox-1 2>/dev/null)
+          echo "[$i/24] $h"
+          [ "$h" = "healthy" ] && echo "Aidbox ready" && exit 0
+          sleep 5
+        done
+        echo "Timed out waiting for Aidbox" && exit 1
+
+# ─── Fixture loading ─────────────────────────────────────────────────────────
+
+  fixtures:load-ig:
+    desc: Load the Vulcan SoA IG output/ directory into Aidbox.
+    dir: "{{.BACKEND_DIR}}"
+    cmds:
+      - |
+        source .venv/bin/activate
+        ENV_FILE={{.ENV_FILE}} python scripts/load_fixtures.py "{{.VULCAN_IG_OUTPUT_DIR}}"
+    preconditions:
+      - sh: test -f .venv/bin/activate
+        msg: "Run 'task backend:install' first"
+
+  fixtures:load-app:
+    desc: Load backend/fixtures/ (demo ResearchStudy + Patient) into Aidbox.
+    dir: "{{.BACKEND_DIR}}"
+    cmds:
+      - |
+        source .venv/bin/activate
+        ENV_FILE={{.ENV_FILE}} python scripts/load_fixtures.py fixtures
+    preconditions:
+      - sh: test -f .venv/bin/activate
+        msg: "Run 'task backend:install' first"
+
+  fixtures:load-all:
+    desc: Load IG output and app fixtures in sequence.
+    cmds:
+      - task: fixtures:load-ig
+      - task: fixtures:load-app
+
+# ─── Backend ─────────────────────────────────────────────────────────────────
+
+  backend:install:
+    desc: Create .venv and install backend dependencies.
+    dir: "{{.BACKEND_DIR}}"
+    cmds:
+      - python3 -m venv .venv
+      - source .venv/bin/activate && pip install -e ".[dev]" -q
+    status:
+      - test -f .venv/bin/activate
+
+  backend:test:
+    desc: Run all backend unit tests (no Aidbox required).
+    dir: "{{.BACKEND_DIR}}"
+    cmds:
+      - source .venv/bin/activate && pytest -v
+    preconditions:
+      - sh: test -f .venv/bin/activate
+        msg: "Run 'task backend:install' first"
+
+  backend:test-integration:
+    desc: Run the golden-path integration test against a live Aidbox.
+    dir: "{{.BACKEND_DIR}}"
+    cmds:
+      - |
+        source .venv/bin/activate
+        ENV_FILE={{.ENV_FILE}} RUN_INTEGRATION_TESTS=1 pytest tests/test_golden_path_integration.py -v
+    preconditions:
+      - sh: test -f .venv/bin/activate
+        msg: "Run 'task backend:install' first"
+      - sh: curl -sf http://localhost:8888/health > /dev/null 2>&1
+        msg: "Aidbox is not reachable — run 'task aidbox:up' and 'task aidbox:wait'"
+
+  backend:serve:
+    desc: Start the FastAPI BFF on :8000 with auto-reload.
+    dir: "{{.BACKEND_DIR}}"
+    cmds:
+      - |
+        source .venv/bin/activate
+        ENV_FILE={{.ENV_FILE}} uvicorn vulcan_soa.api.app:app --reload --port 8000
+    preconditions:
+      - sh: test -f .venv/bin/activate
+        msg: "Run 'task backend:install' first"
+
+# ─── Frontend ─────────────────────────────────────────────────────────────────
+
+  frontend:install:
+    desc: Install frontend npm dependencies.
+    dir: "{{.FRONTEND_DIR}}"
+    cmds:
+      - npm install
+    status:
+      - test -d node_modules
+
+  frontend:test:
+    desc: Run frontend unit tests with Vitest.
+    dir: "{{.FRONTEND_DIR}}"
+    cmds:
+      - npm test
+    preconditions:
+      - sh: test -d node_modules
+        msg: "Run 'task frontend:install' first"
+
+  frontend:dev:
+    desc: Start the Vite dev server on :5173 (proxies /api + /launch to :8000).
+    dir: "{{.FRONTEND_DIR}}"
+    cmds:
+      - npm run dev
+    preconditions:
+      - sh: test -d node_modules
+        msg: "Run 'task frontend:install' first"
+
+  frontend:build:
+    desc: Type-check and build the frontend for production.
+    dir: "{{.FRONTEND_DIR}}"
+    cmds:
+      - npm run build
+    preconditions:
+      - sh: test -d node_modules
+        msg: "Run 'task frontend:install' first"
+
+  frontend:e2e:
+    desc: Run Playwright end-to-end tests (requires running dev servers + Aidbox).
+    dir: "{{.FRONTEND_DIR}}"
+    cmds:
+      - npm run test:e2e
+    preconditions:
+      - sh: test -d node_modules
+        msg: "Run 'task frontend:install' first"
+      - sh: curl -sf http://localhost:8000/health > /dev/null 2>&1 || curl -sf http://localhost:8000/api/context > /dev/null 2>&1
+        msg: "Backend is not running — run 'task backend:serve' in another terminal"
+
+# ─── Composite ───────────────────────────────────────────────────────────────
+
+  install:
+    desc: Install all dependencies (backend + frontend).
+    cmds:
+      - task: backend:install
+      - task: frontend:install
+
+  test:
+    desc: Run all unit tests (backend + frontend, no Aidbox required).
+    cmds:
+      - task: backend:test
+      - task: frontend:test
+
+  dev:
+    desc: Start the BFF (:8000) and Vite dev server (:5173) concurrently.
+    deps:
+      - task: backend:install
+      - task: frontend:install
+    cmds:
+      - |
+        cd {{.BACKEND_DIR}} && source .venv/bin/activate && \
+          ENV_FILE={{.ENV_FILE}} uvicorn vulcan_soa.api.app:app --reload --port 8000 &
+        cd {{.FRONTEND_DIR}} && npm run dev &
+        wait
+
+  setup:
+    desc: Full first-time setup — install deps, start Aidbox, wait for healthy, load fixtures.
+    cmds:
+      - task: install
+      - task: aidbox:up
+      - task: aidbox:wait
+      - task: fixtures:load-all
