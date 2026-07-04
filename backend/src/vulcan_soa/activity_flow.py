@@ -398,3 +398,82 @@ async def perform(client: FhirClient, subject_id: str, action_id: str) -> dict:
             },
         )
     return await schedule_payload(client, workspace)
+
+
+def _activity_order_for_task(chain: VisitChain, task: dict) -> dict:
+    value = tag_value(task) or ""
+    activity_id = value.rpartition("#")[2]
+    return chain.activities.get(activity_id, {}).get("order", {})
+
+
+async def _complete_task_resource(client: FhirClient, patient_id: str, chain: VisitChain, task: dict) -> None:
+    if task.get("status") in ("completed", "cancelled"):
+        return
+    order = _activity_order_for_task(chain, task)
+    procedure = {
+        "resourceType": "Procedure",
+        "status": "completed",
+        "code": order.get("code", {}).get("concept") or {"text": task.get("description", "")},
+        "subject": {"reference": f"Patient/{patient_id}"},
+        "encounter": task.get("encounter"),
+        "identifier": task.get("identifier", []),
+    }
+    if order.get("id"):
+        procedure["basedOn"] = [{"reference": f"ServiceRequest/{order['id']}"}]
+    created = await client.create("Procedure", procedure)
+    task["status"] = "completed"
+    task["output"] = [
+        {"type": {"text": "procedure"}, "valueReference": {"reference": f"Procedure/{created['id']}"}}
+    ]
+    await client.update("Task", task["id"], task, if_match=if_match_header(task))
+
+
+async def complete_task(client: FhirClient, subject_id: str, action_id: str, task_id: str) -> dict:
+    workspace = await _load_workspace(client, subject_id)
+    chain = _require_phase(workspace.chains.get(action_id), action_id, "performing")
+    task = next((t for t in chain.tasks if t["id"] == task_id), None)
+    if task is None:
+        raise ValueError(f"No task {task_id} found for action {action_id}")
+    await _complete_task_resource(client, workspace.patient_id, chain, task)
+    return await schedule_payload(client, workspace)
+
+
+def _all_requests(chain: VisitChain) -> list[dict]:
+    activity_requests = [
+        request for by_intent in chain.activities.values() for request in by_intent.values()
+    ]
+    return [*chain.requests.values(), *activity_requests]
+
+
+async def complete(
+    client: FhirClient, subject_id: str, action_id: str, transition_choice: str | None
+) -> dict:
+    workspace = await _load_workspace(client, subject_id)
+    chain = _require_phase(workspace.chains.get(action_id), action_id, "performing")
+
+    for task in chain.tasks:
+        await _complete_task_resource(client, workspace.patient_id, chain, task)
+    for request in _all_requests(chain):
+        if request.get("status") == "active":
+            await _complete_request(client, request)
+
+    encounter = chain.encounter
+    encounter["status"] = "completed"
+    await client.update("Encounter", encounter["id"], encounter, if_match=if_match_header(encounter))
+
+    # Re-read subject so we pick up any withdrawal that happened between visits.
+    subject = await client.read("ResearchSubject", subject_id)
+    chains = await load_chains(client, workspace.patient_id, workspace.plan_definition_id)
+    state = resolve_schedule_state(workspace.graph, context_from_chains(subject, chains))
+
+    if len(state.next_steps) == 1:
+        node = workspace.graph.nodes[state.next_steps[0].action_id]
+        await materialize_proposal(client, workspace.patient_id, workspace.plan_definition_id, node)
+    elif len(state.next_steps) > 1 and transition_choice is not None:
+        chosen = next((s for s in state.next_steps if s.action_id == transition_choice), None)
+        if chosen is not None:
+            node = workspace.graph.nodes[chosen.action_id]
+            await materialize_proposal(client, workspace.patient_id, workspace.plan_definition_id, node)
+
+    final_chains = await load_chains(client, workspace.patient_id, workspace.plan_definition_id)
+    return schedule_response(state, visits=visit_details(final_chains))

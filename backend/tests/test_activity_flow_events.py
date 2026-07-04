@@ -1,9 +1,10 @@
 import json
 
 import httpx
+import pytest
 import respx
 
-from vulcan_soa.activity_flow import perform
+from vulcan_soa.activity_flow import complete, complete_task, perform
 from vulcan_soa.fhir_client import FhirClient
 
 SUBJECT = {
@@ -43,10 +44,40 @@ BOOKED_APPOINTMENT = {
         {"actor": {"reference": "Practitioner/site-coordinator-demo"}, "status": "accepted"},
     ],
 }
+READY_TASK = {
+    "resourceType": "Task", "id": "t-1", "status": "ready", "intent": "order",
+    "identifier": [ACTIVITY_TAG], "meta": {"versionId": "1"},
+    "basedOn": [{"reference": "ServiceRequest/sr-act-order"}],
+    "focus": {"reference": "ServiceRequest/sr-act-order"},
+    "for": {"reference": "Patient/p-1"},
+    "encounter": {"reference": "Encounter/enc-1"},
+    "description": "Informed Consent",
+}
+IN_PROGRESS_ENCOUNTER = {
+    "resourceType": "Encounter", "id": "enc-1", "status": "in-progress",
+    "meta": {"versionId": "2"}, "identifier": [VISIT_TAG],
+    "subject": {"reference": "Patient/p-1"},
+}
 
 
 def _bundle(*resources: dict) -> dict:
     return {"resourceType": "Bundle", "entry": [{"resource": r} for r in resources]}
+
+
+def _mock_performing_chain(*, tasks=(READY_TASK,)):
+    _mock_subject_reads()
+    respx.get("http://aidbox.test/fhir/ServiceRequest").mock(
+        return_value=httpx.Response(200, json=_bundle(VISIT_ORDER, ACTIVITY_ORDER))
+    )
+    respx.get("http://aidbox.test/fhir/Appointment").mock(
+        return_value=httpx.Response(200, json=_bundle(BOOKED_APPOINTMENT))
+    )
+    respx.get("http://aidbox.test/fhir/Encounter").mock(
+        return_value=httpx.Response(200, json=_bundle(IN_PROGRESS_ENCOUNTER))
+    )
+    respx.get("http://aidbox.test/fhir/Task").mock(
+        return_value=httpx.Response(200, json=_bundle(*tasks))
+    )
 
 
 def _mock_subject_reads():
@@ -102,3 +133,81 @@ async def test_perform_creates_encounter_and_ready_tasks():
     assert task_payload["for"] == {"reference": "Patient/p-1"}
     assert task_payload["encounter"] == {"reference": "Encounter/enc-1"}
     assert task_payload["description"] == "Informed Consent"
+
+
+@respx.mock
+async def test_complete_task_writes_procedure_and_completes_task():
+    _mock_performing_chain()
+    procedure_route = respx.post("http://aidbox.test/fhir/Procedure").mock(
+        return_value=httpx.Response(201, json={"resourceType": "Procedure", "id": "proc-1"})
+    )
+    task_update = respx.put("http://aidbox.test/fhir/Task/t-1").mock(
+        return_value=httpx.Response(200, json=dict(READY_TASK, status="completed"))
+    )
+
+    client = FhirClient(base_url="http://aidbox.test/fhir", access_token="tok")
+    await complete_task(client, "subj-1", "E1", "t-1")
+    await client.close()
+
+    procedure_payload = json.loads(procedure_route.calls.last.request.content)
+    assert procedure_payload["status"] == "completed"
+    assert procedure_payload["code"] == {"coding": [{"display": "Informed Consent"}]}
+    assert procedure_payload["subject"] == {"reference": "Patient/p-1"}
+    assert procedure_payload["encounter"] == {"reference": "Encounter/enc-1"}
+    assert procedure_payload["basedOn"] == [{"reference": "ServiceRequest/sr-act-order"}]
+    assert procedure_payload["identifier"] == [ACTIVITY_TAG]
+
+    task_payload = json.loads(task_update.calls.last.request.content)
+    assert task_payload["status"] == "completed"
+    assert task_payload["output"] == [
+        {"type": {"text": "procedure"}, "valueReference": {"reference": "Procedure/proc-1"}}
+    ]
+
+
+@respx.mock
+async def test_complete_task_unknown_id_raises_value_error():
+    _mock_performing_chain()
+
+    client = FhirClient(base_url="http://aidbox.test/fhir", access_token="tok")
+    with pytest.raises(ValueError):
+        await complete_task(client, "subj-1", "E1", "t-missing")
+    await client.close()
+
+
+@respx.mock
+async def test_complete_sweeps_tasks_completes_requests_and_encounter():
+    _mock_performing_chain()
+    procedure_route = respx.post("http://aidbox.test/fhir/Procedure").mock(
+        return_value=httpx.Response(201, json={"resourceType": "Procedure", "id": "proc-1"})
+    )
+    respx.put("http://aidbox.test/fhir/Task/t-1").mock(
+        return_value=httpx.Response(200, json=dict(READY_TASK, status="completed"))
+    )
+    visit_order_update = respx.put("http://aidbox.test/fhir/ServiceRequest/sr-visit-order").mock(
+        return_value=httpx.Response(200, json=dict(VISIT_ORDER, status="completed"))
+    )
+    activity_order_update = respx.put("http://aidbox.test/fhir/ServiceRequest/sr-act-order").mock(
+        return_value=httpx.Response(200, json=dict(ACTIVITY_ORDER, status="completed"))
+    )
+    encounter_update = respx.put("http://aidbox.test/fhir/Encounter/enc-1").mock(
+        return_value=httpx.Response(200, json=dict(IN_PROGRESS_ENCOUNTER, status="completed"))
+    )
+
+    # Override the Encounter GET mock with side_effect list
+    respx.get("http://aidbox.test/fhir/Encounter").mock(
+        side_effect=[
+            httpx.Response(200, json=_bundle(IN_PROGRESS_ENCOUNTER)),
+            httpx.Response(200, json=_bundle(dict(IN_PROGRESS_ENCOUNTER, status="completed"))),
+            httpx.Response(200, json=_bundle(dict(IN_PROGRESS_ENCOUNTER, status="completed"))),
+        ]
+    )
+
+    client = FhirClient(base_url="http://aidbox.test/fhir", access_token="tok")
+    result = await complete(client, "subj-1", "E1", None)
+    await client.close()
+
+    assert procedure_route.called
+    assert json.loads(visit_order_update.calls.last.request.content)["status"] == "completed"
+    assert json.loads(activity_order_update.calls.last.request.content)["status"] == "completed"
+    assert json.loads(encounter_update.calls.last.request.content)["status"] == "completed"
+    assert result["completed"] == ["E1"]
