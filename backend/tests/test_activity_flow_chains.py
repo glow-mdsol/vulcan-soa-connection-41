@@ -1,12 +1,17 @@
+import httpx
+import respx
+
 from vulcan_soa.activity_flow import (
     VisitChain,
     activity_tag,
     context_from_chains,
     group_identifier,
+    load_chains,
     parse_tag,
     visit_details,
     visit_tag,
 )
+from vulcan_soa.fhir_client import FhirClient
 from vulcan_soa.scheduling import schedule_response
 from vulcan_soa.soa_engine.engine import ScheduleState
 
@@ -101,3 +106,69 @@ def test_schedule_response_includes_visits():
     assert schedule_response(state, visits={"E1": {"phase": "proposed"}})["visits"] == {
         "E1": {"phase": "proposed"}
     }
+
+
+def _bundle(*resources: dict) -> dict:
+    return {"resourceType": "Bundle", "entry": [{"resource": r} for r in resources]}
+
+
+@respx.mock
+async def test_load_chains_groups_resources_by_action_and_activity():
+    tag = {"system": "urn:vulcan-soa:plan-action", "value": "pd-1#E1"}
+    activity = {"system": "urn:vulcan-soa:plan-action", "value": "pd-1#E1#act-1"}
+    respx.get("http://aidbox.test/fhir/ServiceRequest").mock(
+        return_value=httpx.Response(
+            200,
+            json=_bundle(
+                {"resourceType": "ServiceRequest", "id": "sr-1", "intent": "proposal",
+                 "status": "completed", "identifier": [tag]},
+                {"resourceType": "ServiceRequest", "id": "sr-2", "intent": "plan",
+                 "status": "active", "identifier": [tag]},
+                {"resourceType": "ServiceRequest", "id": "sr-3", "intent": "proposal",
+                 "status": "active", "identifier": [activity]},
+                {"resourceType": "ServiceRequest", "id": "sr-x", "intent": "proposal",
+                 "status": "active",
+                 "identifier": [{"system": "urn:vulcan-soa:plan-action", "value": "other-pd#Z"}]},
+            ),
+        )
+    )
+    respx.get("http://aidbox.test/fhir/Appointment").mock(
+        return_value=httpx.Response(
+            200,
+            json=_bundle(
+                {"resourceType": "Appointment", "id": "appt-1", "status": "proposed",
+                 "identifier": [tag],
+                 "participant": [{"actor": {"reference": "Patient/p-1"}, "status": "needs-action"}]},
+                {"resourceType": "Appointment", "id": "appt-other", "status": "proposed",
+                 "identifier": [tag],
+                 "participant": [{"actor": {"reference": "Patient/p-2"}, "status": "needs-action"}]},
+            ),
+        )
+    )
+    respx.get("http://aidbox.test/fhir/Encounter").mock(
+        return_value=httpx.Response(200, json=_bundle())
+    )
+    respx.get("http://aidbox.test/fhir/Task").mock(
+        return_value=httpx.Response(
+            200,
+            json=_bundle(
+                {"resourceType": "Task", "id": "t-1", "status": "ready",
+                 "for": {"reference": "Patient/p-1"}, "identifier": [activity]},
+                {"resourceType": "Task", "id": "t-other", "status": "ready",
+                 "for": {"reference": "Patient/p-2"}, "identifier": [activity]},
+            ),
+        )
+    )
+
+    client = FhirClient(base_url="http://aidbox.test/fhir", access_token="tok")
+    chains = await load_chains(client, "p-1", "pd-1")
+    await client.close()
+
+    assert set(chains) == {"E1"}
+    chain = chains["E1"]
+    assert chain.requests["proposal"]["id"] == "sr-1"
+    assert chain.requests["plan"]["id"] == "sr-2"
+    assert chain.activities["act-1"]["proposal"]["id"] == "sr-3"
+    assert chain.appointment["id"] == "appt-1"
+    assert [t["id"] for t in chain.tasks] == ["t-1"]
+    assert chain.phase == "scheduled"

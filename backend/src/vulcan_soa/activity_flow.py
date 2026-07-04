@@ -7,6 +7,7 @@ tracked by the shared action-tag identifier on every resource in the chain.
 
 from dataclasses import dataclass, field
 
+from vulcan_soa.fhir_client import FhirClient
 from vulcan_soa.soa_engine.conditions import SubjectContext
 
 ACTION_TAG_SYSTEM = "urn:vulcan-soa:plan-action"
@@ -113,3 +114,57 @@ def visit_details(chains: dict[str, VisitChain]) -> dict[str, dict]:
             ]
         details[action_id] = detail
     return details
+
+
+async def load_chains(
+    client: FhirClient, patient_id: str, plan_definition_id: str
+) -> dict[str, VisitChain]:
+    chains: dict[str, VisitChain] = {}
+    patient_reference = f"Patient/{patient_id}"
+
+    def chain_for(action_id: str) -> VisitChain:
+        if action_id not in chains:
+            chains[action_id] = VisitChain(action_id=action_id)
+        return chains[action_id]
+
+    def parsed_tag(resource: dict) -> tuple[str, str | None] | None:
+        return parse_tag(tag_value(resource) or "", plan_definition_id)
+
+    tagged = {"identifier": f"{ACTION_TAG_SYSTEM}|"}
+
+    for request in await client.search("ServiceRequest", {"subject": patient_reference, **tagged}):
+        parsed = parsed_tag(request)
+        if parsed is None:
+            continue
+        action_id, activity_id = parsed
+        chain = chain_for(action_id)
+        if activity_id is None:
+            chain.requests[request.get("intent", "")] = request
+        else:
+            chain.activities.setdefault(activity_id, {})[request.get("intent", "")] = request
+
+    # Appointment and Task have no subject search param on all servers; filter client-side.
+    for appointment in await client.search("Appointment", tagged):
+        parsed = parsed_tag(appointment)
+        if parsed is None:
+            continue
+        actors = [p.get("actor", {}).get("reference") for p in appointment.get("participant", [])]
+        if patient_reference not in actors:
+            continue
+        chain_for(parsed[0]).appointment = appointment
+
+    for encounter in await client.search("Encounter", {"subject": patient_reference, **tagged}):
+        parsed = parsed_tag(encounter)
+        if parsed is None:
+            continue
+        chain_for(parsed[0]).encounter = encounter
+
+    for task in await client.search("Task", tagged):
+        parsed = parsed_tag(task)
+        if parsed is None:
+            continue
+        if task.get("for", {}).get("reference") != patient_reference:
+            continue
+        chain_for(parsed[0]).tasks.append(task)
+
+    return chains
