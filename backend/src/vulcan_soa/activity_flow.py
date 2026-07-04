@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 
 from vulcan_soa.fhir_client import FhirClient
 from vulcan_soa.soa_engine.conditions import SubjectContext
+from vulcan_soa.soa_engine.graph import VisitNode
 
 ACTION_TAG_SYSTEM = "urn:vulcan-soa:plan-action"
 GROUP_ID_SYSTEM = "urn:vulcan-soa:promotion"
@@ -168,3 +169,49 @@ async def load_chains(
         chain_for(parsed[0]).tasks.append(task)
 
     return chains
+
+
+async def materialize_proposal(
+    client: FhirClient, patient_id: str, plan_definition_id: str, node: VisitNode
+) -> dict:
+    group = group_identifier(plan_definition_id, node.action_id, "proposal")
+    visit_request = {
+        "resourceType": "ServiceRequest",
+        "status": "active",
+        "intent": "proposal",
+        "subject": {"reference": f"Patient/{patient_id}"},
+        "identifier": [visit_tag(plan_definition_id, node.action_id)],
+        "groupIdentifier": group,
+        "code": {"concept": {"text": node.title}},
+    }
+    if node.definition_uri:
+        visit_request["instantiatesUri"] = [node.definition_uri]
+    created_visit = await client.create("ServiceRequest", visit_request)
+
+    for definition in await _load_activity_definitions(client, node):
+        activity_request = {
+            "resourceType": "ServiceRequest",
+            "status": "active",
+            "intent": "proposal",
+            "subject": {"reference": f"Patient/{patient_id}"},
+            "identifier": [activity_tag(plan_definition_id, node.action_id, definition["id"])],
+            "groupIdentifier": group,
+            "instantiatesUri": [f"ActivityDefinition/{definition['id']}"],
+            "basedOn": [{"reference": f"ServiceRequest/{created_visit['id']}"}],
+            "code": {"concept": definition.get("code") or {"text": definition.get("title", definition["id"])}},
+        }
+        await client.create("ServiceRequest", activity_request)
+    return created_visit
+
+
+async def _load_activity_definitions(client: FhirClient, node: VisitNode) -> list[dict]:
+    if not node.definition_uri or not node.definition_uri.startswith("PlanDefinition/"):
+        return []
+    visit_pd = await client.read("PlanDefinition", node.definition_uri.split("/", 1)[1])
+    definitions = []
+    for action in visit_pd.get("action", []):
+        uri = action.get("definitionUri", "")
+        # Only ActivityDefinition-backed activities; Questionnaire refs are out of scope.
+        if uri.startswith("ActivityDefinition/"):
+            definitions.append(await client.read("ActivityDefinition", uri.split("/", 1)[1]))
+    return definitions
