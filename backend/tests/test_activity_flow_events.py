@@ -211,3 +211,115 @@ async def test_complete_sweeps_tasks_completes_requests_and_encounter():
     assert json.loads(activity_order_update.calls.last.request.content)["status"] == "completed"
     assert json.loads(encounter_update.calls.last.request.content)["status"] == "completed"
     assert result["completed"] == ["E1"]
+
+
+@respx.mock
+async def test_complete_skips_already_completed_and_cancelled_tasks():
+    _mock_performing_chain(
+        tasks=(
+            READY_TASK,
+            dict(READY_TASK, id="t-2", status="completed"),
+            dict(READY_TASK, id="t-3", status="cancelled"),
+        )
+    )
+    procedure_route = respx.post("http://aidbox.test/fhir/Procedure").mock(
+        return_value=httpx.Response(201, json={"resourceType": "Procedure", "id": "proc-1"})
+    )
+    # Only t-1 is mocked for update; respx raises on any unmocked PUT, so an
+    # attempted update of t-2 or t-3 would fail the test.
+    task_update = respx.put("http://aidbox.test/fhir/Task/t-1").mock(
+        return_value=httpx.Response(200, json=dict(READY_TASK, status="completed"))
+    )
+    respx.put("http://aidbox.test/fhir/ServiceRequest/sr-visit-order").mock(
+        return_value=httpx.Response(200, json=dict(VISIT_ORDER, status="completed"))
+    )
+    respx.put("http://aidbox.test/fhir/ServiceRequest/sr-act-order").mock(
+        return_value=httpx.Response(200, json=dict(ACTIVITY_ORDER, status="completed"))
+    )
+    respx.put("http://aidbox.test/fhir/Encounter/enc-1").mock(
+        return_value=httpx.Response(200, json=dict(IN_PROGRESS_ENCOUNTER, status="completed"))
+    )
+    respx.get("http://aidbox.test/fhir/Encounter").mock(
+        side_effect=[
+            httpx.Response(200, json=_bundle(IN_PROGRESS_ENCOUNTER)),
+            httpx.Response(200, json=_bundle(dict(IN_PROGRESS_ENCOUNTER, status="completed"))),
+            httpx.Response(200, json=_bundle(dict(IN_PROGRESS_ENCOUNTER, status="completed"))),
+        ]
+    )
+
+    client = FhirClient(base_url="http://aidbox.test/fhir", access_token="tok")
+    await complete(client, "subj-1", "E1", None)
+    await client.close()
+
+    assert procedure_route.call_count == 1
+    assert task_update.called
+
+
+AMBIGUOUS_PROTOCOL_PD = {
+    "resourceType": "PlanDefinition",
+    "id": "pd-1",
+    "action": [
+        {
+            "id": "E1",
+            "title": "Screening 1",
+            "action": [
+                {"extension": [{"url": "http://example.org/br-and-r/soa/StructureDefinition/soaTransition",
+                                "extension": [{"url": "soaTargetId", "valueString": "E2"},
+                                              {"url": "soaTransitionType", "valueString": "SS"}]}]},
+                {"extension": [{"url": "http://example.org/br-and-r/soa/StructureDefinition/soaTransition",
+                                "extension": [{"url": "soaTargetId", "valueString": "E3"},
+                                              {"url": "soaTransitionType", "valueString": "SS"}]}]},
+            ],
+        },
+        {"id": "E2", "title": "Branch A"},
+        {"id": "E3", "title": "Branch B"},
+    ],
+}
+
+
+@respx.mock
+async def test_complete_with_transition_choice_materializes_chosen_proposal():
+    respx.get("http://aidbox.test/fhir/ResearchSubject/subj-1").mock(
+        return_value=httpx.Response(200, json=SUBJECT)
+    )
+    respx.get("http://aidbox.test/fhir/ResearchStudy/study-1").mock(
+        return_value=httpx.Response(200, json=STUDY)
+    )
+    respx.get("http://aidbox.test/fhir/PlanDefinition/pd-1").mock(
+        return_value=httpx.Response(200, json=AMBIGUOUS_PROTOCOL_PD)
+    )
+    respx.get("http://aidbox.test/fhir/ServiceRequest").mock(
+        return_value=httpx.Response(200, json=_bundle(VISIT_ORDER))
+    )
+    respx.get("http://aidbox.test/fhir/Appointment").mock(
+        return_value=httpx.Response(200, json=_bundle(BOOKED_APPOINTMENT))
+    )
+    respx.get("http://aidbox.test/fhir/Encounter").mock(
+        side_effect=[
+            httpx.Response(200, json=_bundle(IN_PROGRESS_ENCOUNTER)),
+            httpx.Response(200, json=_bundle(dict(IN_PROGRESS_ENCOUNTER, status="completed"))),
+            httpx.Response(200, json=_bundle(dict(IN_PROGRESS_ENCOUNTER, status="completed"))),
+        ]
+    )
+    respx.get("http://aidbox.test/fhir/Task").mock(
+        return_value=httpx.Response(200, json=_bundle())
+    )
+    respx.put("http://aidbox.test/fhir/ServiceRequest/sr-visit-order").mock(
+        return_value=httpx.Response(200, json=dict(VISIT_ORDER, status="completed"))
+    )
+    respx.put("http://aidbox.test/fhir/Encounter/enc-1").mock(
+        return_value=httpx.Response(200, json=dict(IN_PROGRESS_ENCOUNTER, status="completed"))
+    )
+    create_route = respx.post("http://aidbox.test/fhir/ServiceRequest").mock(
+        return_value=httpx.Response(201, json={"resourceType": "ServiceRequest", "id": "sr-e3"})
+    )
+
+    client = FhirClient(base_url="http://aidbox.test/fhir", access_token="tok")
+    result = await complete(client, "subj-1", "E1", "E3")
+    await client.close()
+
+    payload = json.loads(create_route.calls.last.request.content)
+    assert payload["intent"] == "proposal"
+    assert payload["identifier"] == [{"system": "urn:vulcan-soa:plan-action", "value": "pd-1#E3"}]
+    assert result["ambiguous"] is True
+    assert {s["actionId"] for s in result["nextSteps"]} == {"E2", "E3"}
