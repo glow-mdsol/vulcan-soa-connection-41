@@ -70,8 +70,10 @@ services:
       retries: 10
 
   aidbox:
-    image: docker.io/healthsamurai/aidboxone:edge
-    pull_policy: always
+    # Pinned by digest: `edge` + always-pull let upstream changes break the demo
+    # overnight (validation drift, 2026-07-05). Bump deliberately, then re-run
+    # `task backend:test-integration` to confirm.
+    image: docker.io/healthsamurai/aidboxone@sha256:ce6f9cb15b869fe16029bcf2b8694d0fa403c24b8441d5bf63e4da82ff36a263
     depends_on:
       postgres:
         condition: service_healthy
