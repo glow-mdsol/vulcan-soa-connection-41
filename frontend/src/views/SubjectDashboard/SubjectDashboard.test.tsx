@@ -31,6 +31,7 @@ describe("SubjectDashboard", () => {
       current: ["treatment-1"],
       nextSteps: [],
       ambiguous: false,
+      visits: {},
     });
     vi.mocked(completeVisit).mockResolvedValueOnce({
       completed: ["screening-1", "treatment-1"],
@@ -40,12 +41,14 @@ describe("SubjectDashboard", () => {
         { actionId: "eos-1", title: "End of Study", transitionType: "FS" },
       ],
       ambiguous: true,
+      visits: {},
     });
     vi.mocked(completeVisit).mockResolvedValueOnce({
       completed: ["screening-1", "treatment-1"],
       current: ["day7-1"],
       nextSteps: [],
       ambiguous: false,
+      visits: {},
     });
 
     renderAtSubject("subj-1");
@@ -68,6 +71,7 @@ describe("SubjectDashboard", () => {
       current: ["screening-1"],
       nextSteps: [],
       ambiguous: false,
+      visits: {},
     });
     vi.mocked(withdrawSubject).mockResolvedValue({ id: "subj-1", subjectState: "withdrawn" });
 
