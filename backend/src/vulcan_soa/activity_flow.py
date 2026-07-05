@@ -70,15 +70,18 @@ class VisitChain:
     def phase(self) -> str:
         if self.encounter is not None and self.encounter.get("status") == "completed":
             return "completed"
+        # An encounter in flight stays completable even after withdrawal — the
+        # visit happened and must remain documentable.
+        if self.encounter is not None:
+            return "performing"
         # Terminal (post-withdrawal) states: a cancelled appointment or a revoked
-        # visit-level request means the workflow was torn down. Report "revoked"
-        # so the UI shows no actionable gates and respond() can't book it.
+        # visit-level request means the workflow was torn down before the visit
+        # took place. Report "revoked" so the UI shows no actionable gates and
+        # respond() can't book it.
         if self.appointment is not None and self.appointment.get("status") == "cancelled":
             return "revoked"
         if any(request.get("status") == "revoked" for request in self.requests.values()):
             return "revoked"
-        if self.encounter is not None:
-            return "performing"
         if self.appointment is not None and self.appointment.get("status") == "booked":
             return "booked"
         if self.appointment is not None:

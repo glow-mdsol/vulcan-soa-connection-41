@@ -172,3 +172,18 @@ async def test_load_chains_groups_resources_by_action_and_activity():
     assert chain.appointment["id"] == "appt-1"
     assert [t["id"] for t in chain.tasks] == ["t-1"]
     assert chain.phase == "scheduled"
+
+
+def test_in_progress_encounter_outranks_revoked_markers():
+    # Withdrawal mid-visit revokes requests and cancels the appointment, but an
+    # in-flight encounter must stay completable ("performing"), not "revoked".
+    chain = VisitChain(
+        action_id="E1",
+        requests={"order": {"status": "revoked"}},
+        appointment={"status": "cancelled"},
+        encounter={"status": "in-progress"},
+    )
+    assert chain.phase == "performing"
+
+    chain.encounter = None
+    assert chain.phase == "revoked"

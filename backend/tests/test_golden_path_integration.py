@@ -67,8 +67,12 @@ async def test_golden_path_enroll_progress_withdraw_ambiguous(client):
 
     await _walk_to_performing(client, subject_id, SCREENING_ID)
     after_screening = await complete(client, subject_id, SCREENING_ID, None)
-    assert [s["actionId"] for s in after_screening["nextSteps"]] == [TREATMENT_DAY1_ID]
+    # complete() returns the post-materialization state: the single next step is
+    # already materialized as a proposal, so it appears in current, not nextSteps.
     assert after_screening["ambiguous"] is False
+    assert after_screening["nextSteps"] == []
+    assert TREATMENT_DAY1_ID in after_screening["current"]
+    assert after_screening["visits"][TREATMENT_DAY1_ID]["phase"] == "proposed"
 
     await _walk_to_performing(client, subject_id, TREATMENT_DAY1_ID)
     await withdraw_subject(client, subject_id)
