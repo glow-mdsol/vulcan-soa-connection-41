@@ -4,7 +4,13 @@ from pathlib import Path
 import pytest
 
 from scripts.load_fixtures import load_directory
-from vulcan_soa.activity_flow import complete
+from vulcan_soa.activity_flow import (
+    complete,
+    perform,
+    promote,
+    respond,
+    schedule_visit,
+)
 from vulcan_soa.config import Settings
 from vulcan_soa.enrollment import enroll
 from vulcan_soa.fhir_client import FhirClient
@@ -45,15 +51,26 @@ async def client():
     await fhir_client.close()
 
 
+async def _walk_to_performing(client: FhirClient, subject_id: str, action_id: str) -> None:
+    await promote(client, subject_id, action_id, "plan")
+    await promote(client, subject_id, action_id, "order")
+    await schedule_visit(client, subject_id, action_id)
+    await respond(client, subject_id, action_id, "patient", "accepted")
+    await respond(client, subject_id, action_id, "site", "accepted")
+    await perform(client, subject_id, action_id)
+
+
 async def test_golden_path_enroll_progress_withdraw_ambiguous(client):
     enroll_result = await enroll(client, STUDY_ID, PATIENT_ID)
     subject_id = enroll_result["researchSubjectId"]
     assert enroll_result["schedule"]["nextSteps"] == []
 
+    await _walk_to_performing(client, subject_id, SCREENING_ID)
     after_screening = await complete(client, subject_id, SCREENING_ID, None)
     assert [s["actionId"] for s in after_screening["nextSteps"]] == [TREATMENT_DAY1_ID]
     assert after_screening["ambiguous"] is False
 
+    await _walk_to_performing(client, subject_id, TREATMENT_DAY1_ID)
     await withdraw_subject(client, subject_id)
 
     after_treatment_day1 = await complete(client, subject_id, TREATMENT_DAY1_ID, None)

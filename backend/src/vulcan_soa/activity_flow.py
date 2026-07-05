@@ -5,6 +5,7 @@ activity flow (https://hl7.org/fhir/uv/cpg/activityflow.html). Chain membership 
 tracked by the shared action-tag identifier on every resource in the chain.
 """
 
+import datetime
 from dataclasses import dataclass, field
 
 from vulcan_soa.fhir_client import FhirClient
@@ -183,7 +184,7 @@ async def materialize_proposal(
         "intent": "proposal",
         "subject": {"reference": f"Patient/{patient_id}"},
         "identifier": [visit_tag(plan_definition_id, node.action_id)],
-        "groupIdentifier": group,
+        "requisition": group,
         "code": {"concept": {"text": node.title}},
     }
     if node.definition_uri:
@@ -197,7 +198,7 @@ async def materialize_proposal(
             "intent": "proposal",
             "subject": {"reference": f"Patient/{patient_id}"},
             "identifier": [activity_tag(plan_definition_id, node.action_id, definition["id"])],
-            "groupIdentifier": group,
+            "requisition": group,
             "instantiatesUri": [f"ActivityDefinition/{definition['id']}"],
             "basedOn": [{"reference": f"ServiceRequest/{created_visit['id']}"}],
             "code": {"concept": definition.get("code") or {"text": definition.get("title", definition["id"])}},
@@ -265,7 +266,7 @@ def _next_request(previous: dict, intent: str, group: dict, based_on: list[dict]
         "intent": intent,
         "subject": previous["subject"],
         "identifier": previous["identifier"],
-        "groupIdentifier": group,
+        "requisition": group,
         "basedOn": [{"reference": f"ServiceRequest/{r['id']}"} for r in based_on],
         "code": previous.get("code"),
     }
@@ -299,10 +300,20 @@ async def promote(client: FhirClient, subject_id: str, action_id: str, to_intent
     return await schedule_payload(client, workspace)
 
 
+def _default_appointment_window() -> tuple[str, str]:
+    # Placeholder slot: no real calendar/site-availability integration exists yet.
+    # R6 Appointment invariant app-3 requires start/end once status leaves
+    # proposed/cancelled/waitlist, so a window is stamped on at creation time.
+    start = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=1)
+    end = start + datetime.timedelta(hours=1)
+    return start.isoformat(), end.isoformat()
+
+
 async def schedule_visit(client: FhirClient, subject_id: str, action_id: str) -> dict:
     workspace = await _load_workspace(client, subject_id)
     chain = _require_phase(workspace.chains.get(action_id), action_id, "ordered")
     order = chain.requests["order"]
+    start, end = _default_appointment_window()
     await client.create(
         "Appointment",
         {
@@ -310,6 +321,8 @@ async def schedule_visit(client: FhirClient, subject_id: str, action_id: str) ->
             "status": "proposed",
             "identifier": [visit_tag(workspace.plan_definition_id, action_id)],
             "basedOn": [{"reference": f"ServiceRequest/{order['id']}"}],
+            "start": start,
+            "end": end,
             "participant": [
                 {"actor": {"reference": f"Patient/{workspace.patient_id}"}, "status": "needs-action"},
                 {"actor": {"reference": f"Practitioner/{SITE_PRACTITIONER_ID}"}, "status": "needs-action"},

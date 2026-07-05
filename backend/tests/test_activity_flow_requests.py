@@ -55,7 +55,7 @@ async def test_materialize_proposal_creates_visit_and_activity_requests():
     assert visit_payload["intent"] == "proposal"
     assert visit_payload["status"] == "active"
     assert visit_payload["identifier"] == [{"system": "urn:vulcan-soa:plan-action", "value": "pd-1#E1"}]
-    assert visit_payload["groupIdentifier"] == {"system": "urn:vulcan-soa:promotion", "value": "pd-1#E1:proposal"}
+    assert visit_payload["requisition"] == {"system": "urn:vulcan-soa:promotion", "value": "pd-1#E1:proposal"}
     assert visit_payload["instantiatesUri"] == ["PlanDefinition/E1-USDM"]
     assert visit_payload["code"] == {"concept": {"text": "Screening 1"}}
     assert visit_payload["subject"] == {"reference": "Patient/p-1"}
@@ -170,7 +170,7 @@ async def test_promote_to_plan_creates_new_requests_and_completes_predecessors()
     assert visit_payload["intent"] == "plan"
     assert visit_payload["basedOn"] == [{"reference": "ServiceRequest/sr-visit-proposal"}]
     assert visit_payload["identifier"] == [VISIT_TAG]
-    assert visit_payload["groupIdentifier"] == {"system": "urn:vulcan-soa:promotion", "value": "pd-1#E1:plan"}
+    assert visit_payload["requisition"] == {"system": "urn:vulcan-soa:promotion", "value": "pd-1#E1:plan"}
 
     activity_payload = json.loads(create_route.calls[1].request.content)
     assert activity_payload["intent"] == "plan"
