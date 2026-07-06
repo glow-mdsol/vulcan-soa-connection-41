@@ -52,6 +52,17 @@ tasks:
         done
         echo "Timed out waiting for Aidbox" && exit 1
 
+  aidbox:register-client:
+    desc: Print the app's Client + AccessPolicy registration bundle (task aidbox:register-client -- --apply to PUT it).
+    dir: "{{.BACKEND_DIR}}"
+    cmds:
+      - |
+        source .venv/bin/activate
+        ENV_FILE={{.ENV_FILE}} python scripts/generate_client_registration.py {{.CLI_ARGS}}
+    preconditions:
+      - sh: test -f .venv/bin/activate
+        msg: "Run 'task backend:install' first"
+
 # ─── Fixture loading ─────────────────────────────────────────────────────────
 
   fixtures:load-ig:

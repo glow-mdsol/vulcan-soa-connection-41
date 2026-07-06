@@ -114,21 +114,32 @@ The local instance is fully bootstrapped — you never create the Client by hand
 On a remote instance you register the client yourself, then point the backend at it
 with an env file — no code changes.
 
-1. **Create the Client and AccessPolicy** on the remote instance. In the Aidbox
-   console open *REST Console* and PUT the two resources from
-   [the section above](#the-client-registration-aidbox-needs), with two edits:
+1. **Create the Client and AccessPolicy** on the remote instance. Fill in
+   `backend/.env.connectathon` first (step 2) — the registration is generated from
+   it, so the secret and redirect URI cannot drift from what the backend sends:
 
-   - `secret` — generate a real secret (`openssl rand -hex 24`); do not reuse
-     `change-me`.
-   - `auth.authorization_code.redirect_uri` — where the *backend* is reachable from
-     the user's browser, e.g. `http://localhost:8000/callback` if you run the BFF
-     locally against the remote Aidbox, or `https://<your-host>/callback` if the BFF
-     is deployed.
+   ```bash
+   cd backend && source .venv/bin/activate
+   ENV_FILE=.env.connectathon python scripts/generate_client_registration.py
+   ```
 
+   This prints a batch `Bundle` containing the `Client` and `AccessPolicy` from
+   [the section above](#the-client-registration-aidbox-needs) with your values
+   filled in — paste it into the Aidbox REST console (`POST /`). Or skip the
+   console and apply it directly with the instance's admin client:
+
+   ```bash
+   AIDBOX_ADMIN_CLIENT_ID=root AIDBOX_ADMIN_CLIENT_SECRET=<admin secret> \
+     ENV_FILE=.env.connectathon python scripts/generate_client_registration.py --apply
    ```
-   PUT /Client/vulcan-soa-bff
-   PUT /AccessPolicy/open-for-vulcan-soa-bff
-   ```
+
+   Two values worth double-checking in your env file before generating:
+
+   - `SMART_CLIENT_SECRET` — generate a real secret (`openssl rand -hex 24`); do not
+     reuse `change-me`.
+   - `REDIRECT_URI` — where the *backend* is reachable from the user's browser, e.g.
+     `http://localhost:8000/callback` if you run the BFF locally against the remote
+     Aidbox, or `https://<your-host>/callback` if the BFF is deployed.
 
 2. **Configure the backend** with a dedicated env file:
 
