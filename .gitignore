@@ -1,3 +1,4 @@
+/.env
 backend/.env.local
 backend/.env.connectathon
 backend/.venv/

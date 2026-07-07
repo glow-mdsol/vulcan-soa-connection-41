@@ -76,14 +76,18 @@ task dev                       # runs both concurrently
 Open [http://localhost:5173](http://localhost:5173) — the SPA proxies `/api`, `/launch`,
 and `/callback` to the backend.
 
-If :5173 is taken on your machine, set `FRONTEND_PORT` (e.g. `FRONTEND_PORT=5199 task dev`)
-— Vite, Playwright, and the e2e hints all honour it. Update `FRONTEND_URL` in
+If :5173 or :8000 is taken on your machine, put per-machine ports in a root `.env`
+(`cp .env.example .env`, then edit) — the Taskfile loads it for every command, so a
+plain `task dev` uses your ports. A shell variable still wins for one-offs
+(`FRONTEND_PORT=5201 task dev`). Note the root `.env` only applies to `task`
+commands; a bare `npm run dev` needs the variables set in your shell.
+
+`FRONTEND_PORT` is honoured by Vite, Playwright, and the e2e hints. Update `FRONTEND_URL` in
 `backend/.env.local` to match and restart the BFF, or its CORS/redirects will still
 point at :5173. The dev server uses `strictPort`, so a busy port fails loudly instead
 of silently hopping to :5174.
 
-If :8000 is taken, set `BACKEND_PORT` the same way (`BACKEND_PORT=8010 task dev`) —
-uvicorn and the Vite proxy follow it. Then update `REDIRECT_URI` in
+`BACKEND_PORT` drives uvicorn and the Vite proxy. Then update `REDIRECT_URI` in
 `backend/.env.local` to the new port **and re-register the client**
 (`task aidbox:register-client -- --apply`), because the redirect URI is part of the
 Aidbox `Client` registration. Beware half-taken ports: a Docker container publishing
@@ -94,6 +98,8 @@ Aidbox `Client` registration. Beware half-taken ports: a Docker container publis
 
 | File | Purpose | Committed? |
 |---|---|---|
+| `.env.example` | Template for per-machine dev-server ports (Taskfile dotenv) | Yes |
+| `.env` | Real per-machine ports (`FRONTEND_PORT`, `BACKEND_PORT`) | No |
 | `docker/.env.example` | Template for Docker secrets | Yes |
 | `docker/.env` | Real Docker secrets (AIDBOX_LICENSE etc.) | No |
 | `backend/.env.local.example` | Template for backend config | Yes |

@@ -1,5 +1,8 @@
 version: "3"
 
+# Per-machine overrides (dev-server ports). OS env vars take precedence.
+dotenv: [".env"]
+
 vars:
   BACKEND_DIR: backend
   FRONTEND_DIR: frontend
