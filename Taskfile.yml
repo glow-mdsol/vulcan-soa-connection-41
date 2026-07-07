@@ -153,12 +153,12 @@ tasks:
         msg: "Aidbox is not reachable — run 'task aidbox:up' and 'task aidbox:wait'"
 
   backend:serve:
-    desc: Start the FastAPI BFF on :8000 with auto-reload.
+    desc: Start the FastAPI BFF with auto-reload (default :8000, override with BACKEND_PORT).
     dir: "{{.BACKEND_DIR}}"
     cmds:
       - |
         source .venv/bin/activate
-        ENV_FILE={{.ENV_FILE}} uvicorn vulcan_soa.api.app:app --reload --port 8000
+        ENV_FILE={{.ENV_FILE}} uvicorn vulcan_soa.api.app:app --reload --port {{.BACKEND_PORT | default "8000"}}
     preconditions:
       - sh: test -f .venv/bin/activate
         msg: "Run 'task backend:install' first"
@@ -208,7 +208,7 @@ tasks:
     preconditions:
       - sh: test -d node_modules
         msg: "Run 'task frontend:install' first"
-      - sh: curl -sf http://localhost:8000/health > /dev/null 2>&1 || curl -sf http://localhost:8000/api/context > /dev/null 2>&1
+      - sh: curl -sf http://127.0.0.1:{{.BACKEND_PORT | default "8000"}}/health > /dev/null 2>&1 || curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:{{.BACKEND_PORT | default "8000"}}/api/context 2>/dev/null | grep -q 401
         msg: "Backend is not running — run 'task backend:serve' in another terminal"
 
 # ─── Composite ───────────────────────────────────────────────────────────────
@@ -226,14 +226,14 @@ tasks:
       - task: frontend:test
 
   dev:
-    desc: Start the BFF (:8000) and Vite dev server (default :5173, override with FRONTEND_PORT) concurrently.
+    desc: Start the BFF (default :8000, BACKEND_PORT) and Vite dev server (default :5173, FRONTEND_PORT) concurrently.
     deps:
       - task: backend:install
       - task: frontend:install
     cmds:
       - |
         cd {{.BACKEND_DIR}} && source .venv/bin/activate && \
-          ENV_FILE={{.ENV_FILE}} uvicorn vulcan_soa.api.app:app --reload --port 8000 &
+          ENV_FILE={{.ENV_FILE}} uvicorn vulcan_soa.api.app:app --reload --port {{.BACKEND_PORT | default "8000"}} &
         cd {{.FRONTEND_DIR}} && npm run dev &
         wait
 

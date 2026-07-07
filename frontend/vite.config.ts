@@ -1,6 +1,10 @@
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
 
+// 127.0.0.1, not localhost: uvicorn binds IPv4 loopback only, and a "localhost"
+// target can resolve to ::1 and hit whatever else squats the port on IPv6.
+const backendTarget = `http://127.0.0.1:${Number(process.env.BACKEND_PORT) || 8000}`;
+
 export default defineConfig({
   plugins: [react()],
   server: {
@@ -9,9 +13,9 @@ export default defineConfig({
     port: Number(process.env.FRONTEND_PORT) || 5173,
     strictPort: true,
     proxy: {
-      "/api": "http://localhost:8000",
-      "/launch": "http://localhost:8000",
-      "/callback": "http://localhost:8000",
+      "/api": backendTarget,
+      "/launch": backendTarget,
+      "/callback": backendTarget,
     },
   },
   test: {

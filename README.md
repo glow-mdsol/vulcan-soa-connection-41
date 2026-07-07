@@ -82,6 +82,14 @@ If :5173 is taken on your machine, set `FRONTEND_PORT` (e.g. `FRONTEND_PORT=5199
 point at :5173. The dev server uses `strictPort`, so a busy port fails loudly instead
 of silently hopping to :5174.
 
+If :8000 is taken, set `BACKEND_PORT` the same way (`BACKEND_PORT=8010 task dev`) —
+uvicorn and the Vite proxy follow it. Then update `REDIRECT_URI` in
+`backend/.env.local` to the new port **and re-register the client**
+(`task aidbox:register-client -- --apply`), because the redirect URI is part of the
+Aidbox `Client` registration. Beware half-taken ports: a Docker container publishing
+`[::]:8000` coexists with uvicorn on `127.0.0.1:8000`, and browser requests to
+`localhost` can land on the container (symptom: "Asset not found" on launch).
+
 ## Environment files
 
 | File | Purpose | Committed? |

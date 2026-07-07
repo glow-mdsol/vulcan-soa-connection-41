@@ -196,6 +196,7 @@ ENV_FILE=.env.connectathon task fhir:doctor   # or .env.local
 
 | Symptom | Likely cause |
 |---|---|
+| "Asset not found" (or another app's 404) on launch or callback | Something else is squatting the BFF or SPA port — often a Docker container publishing `[::]:8000`/`[::]:5173`, which wins the IPv6 side of `localhost` while uvicorn holds only `127.0.0.1`. Move this app with `BACKEND_PORT`/`FRONTEND_PORT` (update `REDIRECT_URI`/`FRONTEND_URL` + re-register the client), or stop the other container. |
 | Redirected to `/launch-error?reason=untrusted_iss` | The launch `iss` ≠ `FHIR_BASE_URL` (scheme/host/path must match exactly, including no trailing slash). |
 | Redirected to `/launch-error?reason=invalid_state` | The OAuth `state` didn't match a pending launch — expired/restarted BFF between authorize and callback, or the URL was reused. |
 | `401 invalid_client` at token exchange | `SMART_CLIENT_SECRET` mismatch between the backend env file and the Aidbox `Client.secret` (locally: `docker/.env` vs `backend/.env.local`). |
