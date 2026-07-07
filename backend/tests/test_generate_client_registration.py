@@ -11,8 +11,11 @@ from scripts.generate_client_registration import (
 from vulcan_soa.fhir_client import FhirClient
 
 
+SCOPES = "openid fhirUser patient/*.cruds user/*.rs"
+
+
 def test_build_client_injects_config_values():
-    client = build_client("my-app", "s3cret", "https://bff.example/callback")
+    client = build_client("my-app", "s3cret", "https://bff.example/callback", SCOPES)
     assert client["resourceType"] == "Client"
     assert client["id"] == "my-app"
     assert client["secret"] == "s3cret"
@@ -20,10 +23,21 @@ def test_build_client_injects_config_values():
 
 
 def test_build_client_is_confidential_with_pkce_and_basic_grant():
-    client = build_client("my-app", "s", "https://cb")
+    client = build_client("my-app", "s", "https://cb", SCOPES)
     assert client["type"] == "confidential"
     assert client["auth"]["authorization_code"]["pkce"] is True
     assert set(client["grant_types"]) == {"authorization_code", "basic"}
+
+
+def test_build_client_scope_includes_launch_plus_configured_scopes():
+    client = build_client("my-app", "s", "https://cb", "openid fhirUser patient/*.cruds")
+    assert client["scope"] == ["openid", "fhirUser", "patient/*.cruds", "launch"]
+
+
+def test_build_client_scope_does_not_duplicate_launch():
+    client = build_client("my-app", "s", "https://cb", "openid launch patient/*.cruds")
+    assert client["scope"] == ["openid", "launch", "patient/*.cruds"]
+    assert client["scope"].count("launch") == 1
 
 
 def test_build_access_policy_links_client():
@@ -35,7 +49,7 @@ def test_build_access_policy_links_client():
 
 
 def test_bundle_puts_both_resources():
-    bundle = build_registration_bundle("my-app", "s", "https://cb")
+    bundle = build_registration_bundle("my-app", "s", "https://cb", SCOPES)
     assert bundle["resourceType"] == "Bundle"
     assert bundle["type"] == "batch"
     assert [entry["request"]["url"] for entry in bundle["entry"]] == [
@@ -61,7 +75,7 @@ async def test_apply_registration_puts_client_and_policy_with_admin_auth():
         )
     )
     fhir = FhirClient(base_url="http://aidbox.test", basic_auth=("root", "admin-secret"))
-    await apply_registration(fhir, "my-app", "s3cret", "https://cb")
+    await apply_registration(fhir, "my-app", "s3cret", "https://cb", SCOPES)
     await fhir.close()
 
     assert client_route.called

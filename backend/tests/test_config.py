@@ -30,3 +30,4 @@ def test_settings_load_from_env_file(env_file):
     assert settings.fhir_base_url == "http://localhost:8888/fhir"
     assert settings.smart_client_id == "test-client"
     assert settings.frontend_url == "http://localhost:5173"
+    assert settings.smart_scopes == "openid fhirUser patient/*.cruds user/*.rs"

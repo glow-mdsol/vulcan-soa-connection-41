@@ -17,3 +17,4 @@ class Settings(BaseSettings):
     smart_client_secret: str
     redirect_uri: str
     frontend_url: str = "http://localhost:5173"
+    smart_scopes: str = "openid fhirUser patient/*.cruds user/*.rs"

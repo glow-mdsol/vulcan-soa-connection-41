@@ -43,9 +43,17 @@ Whatever the instance, the app needs an Aidbox `Client` resource shaped like thi
       "token_format": "jwt"
     }
   },
-  "scope": ["openid", "fhirUser", "launch", "patient/*.read"]
+  "scope": ["openid", "fhirUser", "launch", "patient/*.cruds", "user/*.rs"]
 }
 ```
+
+The scope list comes from `SMART_SCOPES` (default above) — the app always adds `launch`
+to the registration even if you omit it, since the EHR launch flow requires it. Locally
+the `engine: allow` policy below means scopes aren't actually enforced, but any
+scope-enforcing FHIR server needs the write scopes (`patient/*.cruds`) or this app's
+writes will 403. If you change `SMART_SCOPES`, re-run the registration script
+(`generate_client_registration.py`) to update the Client — the old registration won't
+pick up the new scopes on its own.
 
 …plus an `AccessPolicy` linking to the client so its requests are authorized:
 

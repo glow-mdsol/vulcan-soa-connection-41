@@ -32,7 +32,7 @@ def generate_pkce_pair() -> tuple[str, str]:
 def build_authorize_url(
     settings: Settings, pending_launch: PendingLaunch, *, state: str, code_challenge: str
 ) -> str:
-    scope = "openid fhirUser patient/*.read"
+    scope = settings.smart_scopes
     if pending_launch.launch is not None:
         scope = f"{scope} launch"
 

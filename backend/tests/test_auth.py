@@ -43,7 +43,7 @@ def test_build_authorize_url_includes_launch_scope_for_ehr_launch():
     assert parsed.scheme == "https"
     assert parsed.netloc == "aidbox.test"
     assert parsed.path == "/authorize"
-    assert "launch" in query["scope"][0]
+    assert query["scope"][0] == f"{SETTINGS.smart_scopes} launch"
     assert query["launch"] == ["launch-1"]
     assert query["state"] == ["state-1"]
     assert query["code_challenge"] == ["challenge-1"]
@@ -58,7 +58,24 @@ def test_build_authorize_url_omits_launch_for_standalone():
 
     query = parse_qs(urlparse(url).query)
     assert "launch" not in query
-    assert "launch" not in query["scope"][0]
+    assert query["scope"][0] == SETTINGS.smart_scopes
+
+
+def test_build_authorize_url_uses_configured_scopes():
+    settings = Settings(
+        fhir_base_url="https://aidbox.test/fhir",
+        oauth_authorize_url="https://aidbox.test/authorize",
+        oauth_token_url="https://aidbox.test/token",
+        smart_client_id="client-1",
+        smart_client_secret="secret-1",
+        redirect_uri="https://app.test/callback",
+        smart_scopes="openid patient/*.cruds",
+    )
+    pending = PendingLaunch(code_verifier="verifier-1", launch=None)
+    url = build_authorize_url(settings, pending, state="state-1", code_challenge="challenge-1")
+
+    query = parse_qs(urlparse(url).query)
+    assert query["scope"] == ["openid patient/*.cruds"]
 
 
 @respx.mock

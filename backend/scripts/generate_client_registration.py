@@ -16,7 +16,10 @@ from vulcan_soa.config import Settings
 from vulcan_soa.fhir_client import FhirClient
 
 
-def build_client(client_id: str, secret: str, redirect_uri: str) -> dict:
+def build_client(client_id: str, secret: str, redirect_uri: str, scopes: str) -> dict:
+    scope_list = scopes.split()
+    if "launch" not in scope_list:
+        scope_list = [*scope_list, "launch"]
     return {
         "resourceType": "Client",
         "id": client_id,
@@ -31,7 +34,7 @@ def build_client(client_id: str, secret: str, redirect_uri: str) -> dict:
                 "token_format": "jwt",
             }
         },
-        "scope": ["openid", "fhirUser", "launch", "patient/*.read"],
+        "scope": scope_list,
     }
 
 
@@ -44,8 +47,8 @@ def build_access_policy(client_id: str) -> dict:
     }
 
 
-def build_registration_bundle(client_id: str, secret: str, redirect_uri: str) -> dict:
-    client = build_client(client_id, secret, redirect_uri)
+def build_registration_bundle(client_id: str, secret: str, redirect_uri: str, scopes: str) -> dict:
+    client = build_client(client_id, secret, redirect_uri, scopes)
     policy = build_access_policy(client_id)
     return {
         "resourceType": "Bundle",
@@ -68,9 +71,11 @@ def aidbox_base_url(fhir_base_url: str) -> str:
 
 
 async def apply_registration(
-    client: FhirClient, client_id: str, secret: str, redirect_uri: str
+    client: FhirClient, client_id: str, secret: str, redirect_uri: str, scopes: str
 ) -> None:
-    await client.put_by_id("Client", client_id, build_client(client_id, secret, redirect_uri))
+    await client.put_by_id(
+        "Client", client_id, build_client(client_id, secret, redirect_uri, scopes)
+    )
     policy = build_access_policy(client_id)
     await client.put_by_id("AccessPolicy", policy["id"], policy)
 
@@ -91,7 +96,10 @@ async def main() -> None:
 
     if not args.apply:
         bundle = build_registration_bundle(
-            settings.smart_client_id, settings.smart_client_secret, settings.redirect_uri
+            settings.smart_client_id,
+            settings.smart_client_secret,
+            settings.redirect_uri,
+            settings.smart_scopes,
         )
         print(json.dumps(bundle, indent=2))
         return
@@ -110,7 +118,11 @@ async def main() -> None:
     )
     try:
         await apply_registration(
-            client, settings.smart_client_id, settings.smart_client_secret, settings.redirect_uri
+            client,
+            settings.smart_client_id,
+            settings.smart_client_secret,
+            settings.redirect_uri,
+            settings.smart_scopes,
         )
     finally:
         await client.close()
