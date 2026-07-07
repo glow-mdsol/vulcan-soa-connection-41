@@ -13,7 +13,9 @@ const frontendPort = Number(process.env.FRONTEND_PORT) || 5173;
 test("standalone launch redirects to the configured Aidbox authorize endpoint", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("link", { name: "start a standalone launch" }).click();
-  await page.waitForURL(/\/auth\/authorize\?/);
+  // Aidbox 302s straight to /auth/login for a session-less browser, so the
+  // /auth/authorize URL never commits — accept either as proof of the chain.
+  await page.waitForURL(/\/auth\/(authorize|login)\?/);
   expect(page.url()).toContain("response_type=code");
 });
 
