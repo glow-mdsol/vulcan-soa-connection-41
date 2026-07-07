@@ -27,9 +27,11 @@ exist only on `nextSteps`. The rail must say "Screening", not `0700e721-…`.
 ## 2. App shell
 
 `frontend/src/AppShell.tsx` wraps all routes (worklist, enroll, dashboard, launch
-pages): a white header bar with the brand mark ("◈ Vulcan SoA"), the study title
-and subject/patient context when known, over a centered max-width content
-container on the `--bg` canvas. Launch pending/error pages render inside the
+pages): a white header bar with the brand mark (the `h1` keeps the accessible name
+"Vulcan Schedule of Activities" exactly — existing test), over a centered
+max-width content container on the `--bg` canvas. Subject/patient context surfaces
+at page level (dashboard page title, enroll's patient line) rather than in the
+header — the header fetching context would duplicate the Landing request. Launch pending/error pages render inside the
 shell so even failure states look intentional.
 
 ## 3. Design system (plain CSS)
