@@ -10,10 +10,22 @@ body {
   line-height: 1.5;
 }
 
+#root {
+  min-height: 100vh;
+}
+
 /* ── App shell ─────────────────────────────────────────────── */
+.app-shell {
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top left, var(--primary-tint), transparent 28%),
+    linear-gradient(180deg, #f9fbfd 0%, var(--bg) 34%, #eef3f7 100%);
+}
+
 .app-header {
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.84);
+  border-bottom: 1px solid rgba(221, 229, 236, 0.8);
+  backdrop-filter: blur(14px);
 }
 
 .app-header-inner {
@@ -21,7 +33,8 @@ body {
   margin: 0 auto;
   padding: var(--space-3) var(--space-6);
   display: flex;
-  align-items: baseline;
+  align-items: center;
+  justify-content: space-between;
   gap: var(--space-3);
 }
 
@@ -39,6 +52,7 @@ body {
 }
 
 .brand-tag {
+  margin: var(--space-1) 0 0;
   color: var(--muted);
   font-size: 0.8rem;
 }
@@ -46,7 +60,33 @@ body {
 .container {
   max-width: 1040px;
   margin: 0 auto;
-  padding: var(--space-6);
+  padding: var(--space-8) var(--space-6);
+}
+
+.app-frame {
+  min-height: calc(100vh - 128px);
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid rgba(221, 229, 236, 0.9);
+  border-radius: 24px;
+  box-shadow: 0 24px 64px rgba(16, 42, 67, 0.08), var(--shadow);
+  padding: var(--space-8);
+}
+
+@media (max-width: 640px) {
+  .app-header-inner {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .container {
+    padding: var(--space-4);
+  }
+
+  .app-frame {
+    min-height: auto;
+    border-radius: 18px;
+    padding: var(--space-6);
+  }
 }
 
 /* ── Typography ────────────────────────────────────────────── */
@@ -294,7 +334,9 @@ body {
   font-size: 0.9rem;
 }
 
-.form-field input {
+.form-field input,
+.form-field select,
+select {
   display: block;
   width: 100%;
   margin-top: var(--space-2);
@@ -302,9 +344,12 @@ body {
   font: inherit;
   border: 1px solid var(--border);
   border-radius: var(--radius);
+  background: var(--surface);
 }
 
-.form-field input:focus {
+.form-field input:focus,
+.form-field select:focus,
+select:focus {
   outline: 2px solid var(--primary-tint);
   border-color: var(--primary);
 }

@@ -32,3 +32,17 @@ def test_get_context_returns_patient_and_research_study_ids():
 
     assert response.status_code == 200
     assert response.json() == {"patientId": "patient-1", "researchStudyId": "study-1"}
+
+
+def test_delete_context_clears_the_session_cookie_and_store():
+    app = _build_test_app()
+    session_id = app.state.session_store.create(
+        Session(access_token="tok-1", patient_id="patient-1", research_study_id="study-1")
+    )
+    client = TestClient(app)
+
+    response = client.delete("/api/context", cookies={"vulcan_soa_session": session_id})
+
+    assert response.status_code == 204
+    assert app.state.session_store.get(session_id) is None
+    assert "vulcan_soa_session=" in response.headers["set-cookie"]

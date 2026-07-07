@@ -2,6 +2,8 @@ import type {
   Context,
   EnrollResult,
   NextStep,
+  PatientSummary,
+  ResearchStudyDetail,
   ResearchStudySummary,
   Schedule,
   VisitDetail,
@@ -12,6 +14,9 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, { ...init, credentials: "include" });
   if (!response.ok) {
     throw new Error(`Request to ${url} failed with status ${response.status}`);
+  }
+  if (response.status === 204) {
+    return undefined as T;
   }
   return (await response.json()) as T;
 }
@@ -28,8 +33,20 @@ export function getContext(): Promise<Context> {
   return request<Context>("/api/context");
 }
 
+export function logout(): Promise<void> {
+  return request<void>("/api/context", { method: "DELETE" });
+}
+
 export function listResearchStudies(): Promise<ResearchStudySummary[]> {
   return request<ResearchStudySummary[]>("/api/research-studies");
+}
+
+export function getResearchStudy(studyId: string): Promise<ResearchStudyDetail> {
+  return request<ResearchStudyDetail>(`/api/research-studies/${studyId}`);
+}
+
+export function listPatients(): Promise<PatientSummary[]> {
+  return request<PatientSummary[]>("/api/patients");
 }
 
 export function enrollPatient(studyId: string, patientId: string): Promise<EnrollResult> {

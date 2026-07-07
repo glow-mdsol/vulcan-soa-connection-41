@@ -89,3 +89,34 @@ def test_enroll_patient_calls_enrollment_and_returns_schedule():
 
     assert response.status_code == 200
     assert response.json()["researchSubjectId"] == "subj-1"
+
+
+@respx.mock
+def test_get_research_study_returns_study_details():
+    respx.get("https://aidbox.test/fhir/ResearchStudy/study-1").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "resourceType": "ResearchStudy",
+                "id": "study-1",
+                "title": "UC1 Demo Study",
+                "status": "active",
+                "protocol": [{"reference": "PlanDefinition/plan-1"}],
+            },
+        )
+    )
+    app = _build_test_app()
+    app.dependency_overrides[get_fhir_client] = lambda: FhirClient(
+        base_url="https://aidbox.test/fhir", access_token="tok-1"
+    )
+    test_client = TestClient(app)
+
+    response = test_client.get("/api/research-studies/study-1")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "id": "study-1",
+        "title": "UC1 Demo Study",
+        "status": "active",
+        "protocolReferences": ["PlanDefinition/plan-1"],
+    }

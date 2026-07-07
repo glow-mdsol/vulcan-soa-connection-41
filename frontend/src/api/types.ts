@@ -8,6 +8,23 @@ export interface ResearchStudySummary {
   title: string;
 }
 
+export interface ResearchStudyDetail {
+  id: string;
+  title: string;
+  status: string | null;
+  protocolReferences: string[];
+}
+
+export type PatientGender = "male" | "female" | "other" | "unknown";
+
+export interface PatientSummary {
+  id: string;
+  gender: PatientGender;
+  birthDate: string | null;
+  deceased: boolean | null;
+  active: boolean | null;
+}
+
 export interface NextStep {
   actionId: string;
   title: string;

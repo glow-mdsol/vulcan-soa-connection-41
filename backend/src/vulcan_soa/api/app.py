@@ -5,6 +5,7 @@ from vulcan_soa.api.context import router as context_router
 from vulcan_soa.api.launch import router as launch_router
 from vulcan_soa.api.research_studies import router as research_studies_router
 from vulcan_soa.api.research_subjects import router as research_subjects_router
+from vulcan_soa.api.patients import router as patient_router
 from vulcan_soa.config import Settings
 from vulcan_soa.store import InMemoryStore
 
@@ -27,6 +28,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(context_router)
     app.include_router(research_studies_router)
     app.include_router(research_subjects_router)
+    app.include_router(patient_router)
 
     return app
 

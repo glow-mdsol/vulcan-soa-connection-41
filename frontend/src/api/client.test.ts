@@ -4,8 +4,10 @@ import {
   completeVisit,
   enrollPatient,
   getContext,
+  getResearchStudy,
   getSchedule,
   listResearchStudies,
+  logout,
   withdrawSubject,
 } from "./client";
 
@@ -42,6 +44,36 @@ describe("api client", () => {
 
     expect(studies).toEqual([{ id: "study-1", title: "UC1 Demo Study" }]);
     expect(vi.mocked(fetch).mock.calls[0][0]).toBe("/api/research-studies");
+  });
+
+  it("getResearchStudy calls GET /api/research-studies/{id}", async () => {
+    mockFetchOnce({
+      id: "study-1",
+      title: "UC1 Demo Study",
+      status: "active",
+      protocolReferences: ["PlanDefinition/plan-1"],
+    });
+
+    const study = await getResearchStudy("study-1");
+
+    expect(study).toEqual({
+      id: "study-1",
+      title: "UC1 Demo Study",
+      status: "active",
+      protocolReferences: ["PlanDefinition/plan-1"],
+    });
+    expect(vi.mocked(fetch).mock.calls[0][0]).toBe("/api/research-studies/study-1");
+  });
+
+  it("logout calls DELETE /api/context", async () => {
+    mockFetchOnce({}, true, 204);
+
+    await logout();
+
+    const [url, init] = vi.mocked(fetch).mock.calls[0];
+    expect(url).toBe("/api/context");
+    expect(init?.method).toBe("DELETE");
+    expect(init?.credentials).toBe("include");
   });
 
   it("enrollPatient posts the patientId as JSON", async () => {
