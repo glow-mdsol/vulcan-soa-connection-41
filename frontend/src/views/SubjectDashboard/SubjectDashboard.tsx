@@ -12,6 +12,7 @@ import {
   withdrawSubject,
 } from "../../api/client";
 import type { NextStep, Schedule } from "../../api/types";
+import Timeline from "./Timeline";
 import VisitCard from "./VisitCard";
 
 interface PendingChoice {
@@ -111,79 +112,103 @@ export default function SubjectDashboard() {
   }
 
   if (!schedule) {
-    return error ? <p role="alert">{error}</p> : <p>Loading schedule…</p>;
+    return error ? (
+      <p role="alert" className="alert">
+        {error}
+      </p>
+    ) : (
+      <p className="status-note">Loading schedule…</p>
+    );
   }
 
   return (
     <div>
-      {error && <p role="alert">{error}</p>}
-      {withdrawn && <p role="status">Subject withdrawn from study.</p>}
-
-      <section aria-label="Completed visits">
-        <h2>Completed</h2>
-        <ul>
-          {schedule.completed.map((actionId) => (
-            <li key={actionId}>{actionId}</li>
-          ))}
-        </ul>
-      </section>
-
-      <section aria-label="Current visits">
-        <h2>Current</h2>
-        <ul>
-          {schedule.current.map((actionId) => (
-            <VisitCard
-              key={actionId}
-              actionId={actionId}
-              detail={schedule.visits[actionId]}
-              busy={busy}
-              onPlan={() => runGate(() => promoteVisit(subjectId!, actionId, "plan"), "Could not accept the proposal.")}
-              onOrder={() => runGate(() => promoteVisit(subjectId!, actionId, "order"), "Could not authorize the visit.")}
-              onSchedule={() => runGate(() => scheduleVisit(subjectId!, actionId), "Could not schedule the visit.")}
-              onRespond={(participant) =>
-                runGate(
-                  () => respondToAppointment(subjectId!, actionId, participant, "accepted"),
-                  "Could not record the response.",
-                )
-              }
-              onPerform={() => runGate(() => performVisit(subjectId!, actionId), "Could not start the visit.")}
-              onCompleteTask={(taskId) =>
-                runGate(() => completeTask(subjectId!, actionId, taskId), "Could not complete the task.")
-              }
-              onCompleteVisit={() => handleComplete(actionId)}
-            />
-          ))}
-        </ul>
-      </section>
-
-      {pendingChoice && (
-        <section aria-label="Decision needed">
-          <h2>Decision needed</h2>
-          <p>More than one next step is valid. Choose which one to schedule:</p>
-          <ul>
-            {pendingChoice.options.map((option) => (
-              <li key={option.actionId}>
-                <button onClick={() => handleChoice(option.actionId)}>{option.title}</button>
-              </li>
-            ))}
-          </ul>
-        </section>
+      <h2 className="page-title">
+        Subject <span className="meta">{subjectId}</span>
+      </h2>
+      {error && (
+        <p role="alert" className="alert">
+          {error}
+        </p>
+      )}
+      {withdrawn && (
+        <p role="status" className="status-note">
+          Subject withdrawn from study.
+        </p>
       )}
 
-      {!pendingChoice && schedule.nextSteps.length > 0 && (
-        <section aria-label="Next steps">
-          <h2>Next steps</h2>
-          <ul>
-            {schedule.nextSteps.map((step) => (
-              <li key={step.actionId}>{step.title}</li>
-            ))}
-          </ul>
-        </section>
-      )}
+      <div className="dashboard-grid">
+        <Timeline
+          completed={schedule.completed}
+          current={schedule.current}
+          nextSteps={schedule.nextSteps}
+          titles={schedule.titles}
+        />
 
-      <button onClick={handleWithdraw} disabled={withdrawn || busy}>
+        <div>
+          <section aria-label="Current visits">
+            <h2 className="section-title">Current</h2>
+            <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+              {schedule.current.map((actionId) => (
+                <VisitCard
+                  key={actionId}
+                  actionId={actionId}
+                  title={schedule.titles?.[actionId]}
+                  detail={schedule.visits[actionId]}
+                  busy={busy}
+                  onPlan={() => runGate(() => promoteVisit(subjectId!, actionId, "plan"), "Could not accept the proposal.")}
+                  onOrder={() => runGate(() => promoteVisit(subjectId!, actionId, "order"), "Could not authorize the visit.")}
+                  onSchedule={() => runGate(() => scheduleVisit(subjectId!, actionId), "Could not schedule the visit.")}
+                  onRespond={(participant) =>
+                    runGate(
+                      () => respondToAppointment(subjectId!, actionId, participant, "accepted"),
+                      "Could not record the response.",
+                    )
+                  }
+                  onPerform={() => runGate(() => performVisit(subjectId!, actionId), "Could not start the visit.")}
+                  onCompleteTask={(taskId) =>
+                    runGate(() => completeTask(subjectId!, actionId, taskId), "Could not complete the task.")
+                  }
+                  onCompleteVisit={() => handleComplete(actionId)}
+                />
+              ))}
+            </ul>
+          </section>
+
+          {pendingChoice && (
+            <section aria-label="Decision needed" className="banner-decision">
+              <h2>Decision needed</h2>
+              <p>More than one next step is valid. Choose which one to schedule:</p>
+              <ul>
+                {pendingChoice.options.map((option) => (
+                  <li key={option.actionId}>
+                    <button className="btn-choice" onClick={() => handleChoice(option.actionId)}>
+                      {option.title}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          {!pendingChoice && schedule.nextSteps.length > 0 && (
+            <section aria-label="Next steps">
+              <h2 className="section-title">Next steps</h2>
+              <ul className="chip-list">
+                {schedule.nextSteps.map((step) => (
+                  <li key={step.actionId} className="chip">
+                    {step.title}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          <button className="btn-danger-quiet" onClick={handleWithdraw} disabled={withdrawn || busy}>
         Withdraw subject
-      </button>
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
