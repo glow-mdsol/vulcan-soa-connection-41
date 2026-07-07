@@ -46,3 +46,14 @@ Verified by:
 - Occupying the chosen port and confirming Vite exits with an error
   (`strictPort`) instead of hopping.
 - `task frontend:test` (vitest) still green.
+
+## Verification results (2026-07-07)
+
+All confirmed, with one nuance: `strictPort` catches a same-address-family
+collision (second Vite on the same port → `Error: Port 5198 is already in use`,
+exit 1) but NOT a cross-family one — with an IPv4-only listener holding the port,
+Vite binds the IPv6 loopback and reports ready. The original 5173 conflict on this
+machine is Docker publishing `*:5173` on IPv6, which is exactly such a cross-family
+case — so `FRONTEND_PORT` (avoid the port), not `strictPort` (detect it), is the
+operative fix. Also fixed in passing: `e2e/golden-path.spec.ts` used CommonJS
+`__dirname` in an ESM package, which broke `playwright test` on current HEAD.

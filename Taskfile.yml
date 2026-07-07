@@ -172,7 +172,7 @@ tasks:
         msg: "Run 'task frontend:install' first"
 
   frontend:dev:
-    desc: Start the Vite dev server on :5173 (proxies /api + /launch to :8000).
+    desc: Start the Vite dev server (default :5173, override with FRONTEND_PORT; proxies /api + /launch to :8000).
     dir: "{{.FRONTEND_DIR}}"
     cmds:
       - npm run dev
@@ -215,7 +215,7 @@ tasks:
       - task: frontend:test
 
   dev:
-    desc: Start the BFF (:8000) and Vite dev server (:5173) concurrently.
+    desc: Start the BFF (:8000) and Vite dev server (default :5173, override with FRONTEND_PORT) concurrently.
     deps:
       - task: backend:install
       - task: frontend:install

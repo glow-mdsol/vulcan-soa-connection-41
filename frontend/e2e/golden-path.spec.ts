@@ -1,10 +1,14 @@
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { expect, test } from "@playwright/test";
 
-const STORAGE_STATE_PATH = path.join(__dirname, ".auth", "session.json");
+const STORAGE_STATE_PATH = path.join(
+  path.dirname(fileURLToPath(import.meta.url)), ".auth", "session.json",
+);
 const hasBootstrappedSession = fs.existsSync(STORAGE_STATE_PATH);
+const frontendPort = Number(process.env.FRONTEND_PORT) || 5173;
 
 test("standalone launch redirects to the configured Aidbox authorize endpoint", async ({ page }) => {
   await page.goto("/");
@@ -17,7 +21,7 @@ test.describe("authenticated golden path", () => {
   test.skip(
     !hasBootstrappedSession,
     "requires a one-time manual login bootstrap: " +
-      "npx playwright codegen --save-storage=e2e/.auth/session.json http://localhost:5173 " +
+      `npx playwright codegen --save-storage=e2e/.auth/session.json http://localhost:${frontendPort} ` +
       "(complete the standalone launch + Aidbox login once, then close the browser)",
   );
   test.use({ storageState: STORAGE_STATE_PATH });

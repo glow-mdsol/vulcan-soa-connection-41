@@ -95,8 +95,11 @@ The local instance is fully bootstrapped — you never create the Client by hand
 
    ```bash
    task fixtures:load-all     # IG resources + demo study/patient/practitioner
-   task dev                   # BFF :8000 + SPA :5173
+   task dev                   # BFF :8000 + SPA :5173 (or FRONTEND_PORT=<port> task dev)
    ```
+
+   If you override `FRONTEND_PORT`, set `FRONTEND_URL` in `backend/.env.local` to the
+   same origin — it drives the BFF's CORS allow-list and post-callback redirect.
 
 4. **Verify the SMART flow:** open <http://localhost:5173>, follow *start a standalone
    launch*, and log in with `admin` / `AIDBOX_ADMIN_PASSWORD` (default `admin`). You

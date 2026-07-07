@@ -76,6 +76,12 @@ task dev                       # runs both concurrently
 Open [http://localhost:5173](http://localhost:5173) — the SPA proxies `/api`, `/launch`,
 and `/callback` to the backend.
 
+If :5173 is taken on your machine, set `FRONTEND_PORT` (e.g. `FRONTEND_PORT=5199 task dev`)
+— Vite, Playwright, and the e2e hints all honour it. Update `FRONTEND_URL` in
+`backend/.env.local` to match and restart the BFF, or its CORS/redirects will still
+point at :5173. The dev server uses `strictPort`, so a busy port fails loudly instead
+of silently hopping to :5174.
+
 ## Environment files
 
 | File | Purpose | Committed? |
