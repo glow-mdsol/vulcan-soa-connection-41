@@ -54,4 +54,7 @@ style. `main()`'s printing/exit-code logic stays thin and is not unit-tested.
 
 - Checking the EHR-launch flow end to end (requires a browser + login).
 - Validating IG StructureDefinitions on the remote instance (drift guard exists).
-- Retries/timeouts tuning — single attempt, default httpx timeout.
+- Retries — single attempt per check. The doctor's own http client uses a 30 s
+  timeout (not httpx's 5 s default): live verification showed Aidbox generates its
+  ~3 MB R6 CapabilityStatement on the first post-boot /metadata request, which
+  exceeds 5 s and false-failed the reachability check.

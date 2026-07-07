@@ -266,9 +266,15 @@ task backend:serve                             # uses backend/.env.local
 cp backend/.env.connectathon.example backend/.env.connectathon
 # fill in FHIR_BASE_URL, OAuth endpoints, a real SMART_CLIENT_SECRET, REDIRECT_URI
 ENV_FILE=.env.connectathon task aidbox:register-client -- --apply   # once per instance
-ENV_FILE=.env.connectathon task backend:serve
 ENV_FILE=.env.connectathon task fixtures:load-all                   # loader honours the same switch
+ENV_FILE=.env.connectathon task fhir:doctor                         # verify the connection is right
+ENV_FILE=.env.connectathon task backend:serve
 ```
+
+`task fhir:doctor` is the pre-demo smoke check: reachability + R6 version, the
+client's basic-auth grant, OAuth endpoint config vs the server's
+`smart-configuration`, and that the demo fixtures are loaded — one ✓/✗ line each,
+with a fix hint on failure.
 
 ## R6 shape notes (confirmed against live Aidbox edge)
 

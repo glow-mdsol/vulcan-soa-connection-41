@@ -63,6 +63,17 @@ tasks:
       - sh: test -f .venv/bin/activate
         msg: "Run 'task backend:install' first"
 
+  fhir:doctor:
+    desc: Check connectivity, auth, OAuth endpoints, and fixtures on the configured FHIR server (honours ENV_FILE).
+    dir: "{{.BACKEND_DIR}}"
+    cmds:
+      - |
+        source .venv/bin/activate
+        ENV_FILE={{.ENV_FILE}} python scripts/check_connection.py
+    preconditions:
+      - sh: test -f .venv/bin/activate
+        msg: "Run 'task backend:install' first"
+
 # ─── Fixture loading ─────────────────────────────────────────────────────────
 
   fixtures:load-ig:

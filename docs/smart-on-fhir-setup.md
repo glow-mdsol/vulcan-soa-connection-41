@@ -186,6 +186,14 @@ with an env file — no code changes.
 
 ## Troubleshooting
 
+First run the doctor — it covers the most common misconfigurations (reachability,
+FHIR version, client auth, OAuth endpoint typos, missing fixtures) with a fix hint
+per failure:
+
+```bash
+ENV_FILE=.env.connectathon task fhir:doctor   # or .env.local
+```
+
 | Symptom | Likely cause |
 |---|---|
 | Redirected to `/launch-error?reason=untrusted_iss` | The launch `iss` ≠ `FHIR_BASE_URL` (scheme/host/path must match exactly, including no trailing slash). |
