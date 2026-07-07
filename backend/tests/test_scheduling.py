@@ -4,6 +4,18 @@ import respx
 from vulcan_soa.fhir_client import FhirClient
 from vulcan_soa.scheduling import load_protocol_graph, schedule_response
 from vulcan_soa.soa_engine.engine import NextStep, ScheduleState
+from vulcan_soa.soa_engine.graph import ProtocolGraph, VisitNode
+
+
+def tiny_graph() -> ProtocolGraph:
+    return ProtocolGraph(
+        plan_definition_id="pd-1",
+        nodes={
+            "a-1": VisitNode(action_id="a-1", title="Screening", transitions=()),
+            "b-2": VisitNode(action_id="b-2", title="Treatment Day 1", transitions=()),
+        },
+        root_ids=("a-1",),
+    )
 
 
 @respx.mock
@@ -46,7 +58,7 @@ def test_schedule_response_shapes_state_and_flags_ambiguous():
             NextStep(action_id="c", title="End of Study", transition_type="FS"),
         ),
     )
-    response = schedule_response(state)
+    response = schedule_response(state, tiny_graph())
 
     assert response["completed"] == ["a"]
     assert response["nextSteps"] == [
@@ -62,4 +74,14 @@ def test_schedule_response_not_ambiguous_for_single_next_step():
         current_action_ids=frozenset(),
         next_steps=(NextStep(action_id="a", title="Screening", transition_type=None),),
     )
-    assert schedule_response(state)["ambiguous"] is False
+    assert schedule_response(state, tiny_graph())["ambiguous"] is False
+
+
+def test_schedule_response_includes_titles_for_every_graph_node():
+    state = ScheduleState(
+        completed_action_ids=frozenset(),
+        current_action_ids=frozenset(),
+        next_steps=(),
+    )
+    response = schedule_response(state, tiny_graph())
+    assert response["titles"] == {"a-1": "Screening", "b-2": "Treatment Day 1"}

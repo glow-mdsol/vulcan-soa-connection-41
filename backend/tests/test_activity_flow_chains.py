@@ -15,6 +15,8 @@ from vulcan_soa.fhir_client import FhirClient
 from vulcan_soa.scheduling import schedule_response
 from vulcan_soa.soa_engine.engine import ScheduleState
 
+from tests.test_scheduling import tiny_graph
+
 
 def test_tag_helpers_produce_identifier_dicts():
     assert visit_tag("pd-1", "E1") == {"system": "urn:vulcan-soa:plan-action", "value": "pd-1#E1"}
@@ -102,8 +104,8 @@ def test_schedule_response_includes_visits():
     state = ScheduleState(
         completed_action_ids=frozenset(), current_action_ids=frozenset(), next_steps=()
     )
-    assert schedule_response(state)["visits"] == {}
-    assert schedule_response(state, visits={"E1": {"phase": "proposed"}})["visits"] == {
+    assert schedule_response(state, tiny_graph())["visits"] == {}
+    assert schedule_response(state, tiny_graph(), visits={"E1": {"phase": "proposed"}})["visits"] == {
         "E1": {"phase": "proposed"}
     }
 

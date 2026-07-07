@@ -17,7 +17,9 @@ async def load_protocol_graph_for_subject(
     return await load_protocol_graph(client, study_id)
 
 
-def schedule_response(state: ScheduleState, visits: dict[str, dict] | None = None) -> dict:
+def schedule_response(
+    state: ScheduleState, graph: ProtocolGraph, visits: dict[str, dict] | None = None
+) -> dict:
     return {
         "completed": sorted(state.completed_action_ids),
         "current": sorted(state.current_action_ids),
@@ -27,4 +29,5 @@ def schedule_response(state: ScheduleState, visits: dict[str, dict] | None = Non
         ],
         "ambiguous": len(state.next_steps) > 1,
         "visits": visits or {},
+        "titles": {action_id: node.title for action_id, node in graph.nodes.items()},
     }

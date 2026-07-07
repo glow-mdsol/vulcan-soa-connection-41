@@ -266,7 +266,7 @@ async def _complete_request(client: FhirClient, request: dict) -> None:
 async def schedule_payload(client: FhirClient, workspace: _SubjectWorkspace) -> dict:
     chains = await load_chains(client, workspace.patient_id, workspace.plan_definition_id)
     state = resolve_schedule_state(workspace.graph, context_from_chains(workspace.subject, chains))
-    return schedule_response(state, visits=visit_details(chains))
+    return schedule_response(state, workspace.graph, visits=visit_details(chains))
 
 
 def _next_request(previous: dict, intent: str, group: dict, based_on: list[dict]) -> dict:
@@ -524,7 +524,7 @@ async def complete(
     final_state = resolve_schedule_state(
         workspace.graph, context_from_chains(subject, final_chains)
     )
-    return schedule_response(final_state, visits=visit_details(final_chains))
+    return schedule_response(final_state, workspace.graph, visits=visit_details(final_chains))
 
 
 async def revoke_open_workflow(client: FhirClient, patient_id: str, plan_definition_id: str) -> None:

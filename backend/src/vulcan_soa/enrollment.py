@@ -56,5 +56,5 @@ async def enroll(client: FhirClient, study_id: str, patient_id: str) -> dict:
     visits = {step.action_id: {"phase": "proposed"} for step in initial_state.next_steps}
     return {
         "researchSubjectId": created["id"],
-        "schedule": schedule_response(post_enroll_state, visits=visits),
+        "schedule": schedule_response(post_enroll_state, graph, visits=visits),
     }

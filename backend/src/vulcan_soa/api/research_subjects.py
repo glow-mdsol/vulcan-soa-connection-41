@@ -40,7 +40,7 @@ async def get_schedule(subject_id: str, client: FhirClient = Depends(get_fhir_cl
     patient_id = subject["subject"]["reference"].split("/", 1)[1]
     chains = await load_chains(client, patient_id, plan_definition_id)
     state = resolve_schedule_state(graph, context_from_chains(subject, chains))
-    return schedule_response(state, visits=visit_details(chains))
+    return schedule_response(state, graph, visits=visit_details(chains))
 
 
 @router.post("/{subject_id}/visits/{action_id}/plan")
