@@ -23,7 +23,8 @@ describe("VisitCard", () => {
     render(<VisitCard actionId="E1" detail={{ phase: "proposed" }} {...handlers} />);
 
     expect(screen.getByRole("button", { name: "Accept proposal" })).toBeInTheDocument();
-    expect(screen.getByText("proposed")).toHaveAttribute("aria-current", "step");
+    const proposedInStepper = screen.getAllByText("proposed").find((el) => el.tagName === "LI");
+    expect(proposedInStepper).toHaveAttribute("aria-current", "step");
   });
 
   it("shows participant responses while scheduled and disables an accepted participant", async () => {
@@ -60,5 +61,22 @@ describe("VisitCard", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Complete visit" }));
     expect(handlers.onCompleteVisit).toHaveBeenCalled();
+  });
+
+  it("shows the visit title when provided and keeps the action id visible", () => {
+    const handlers = noopHandlers();
+    render(
+      <VisitCard actionId="E1" title="Screening" detail={{ phase: "proposed" }} {...handlers} />,
+    );
+
+    expect(screen.getByText("Screening")).toBeInTheDocument();
+    expect(screen.getByText("E1")).toBeInTheDocument();
+  });
+
+  it("falls back to the action id as the card heading when no title is given", () => {
+    const handlers = noopHandlers();
+    render(<VisitCard actionId="E1" detail={{ phase: "proposed" }} {...handlers} />);
+
+    expect(screen.getByLabelText("Visit E1")).toBeInTheDocument();
   });
 });

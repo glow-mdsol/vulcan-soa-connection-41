@@ -4,6 +4,7 @@ const PHASES = ["proposed", "planned", "ordered", "scheduled", "booked", "perfor
 
 interface VisitCardProps {
   actionId: string;
+  title?: string;
   detail: VisitDetail | undefined;
   busy?: boolean;
   onPlan: () => void;
@@ -17,6 +18,7 @@ interface VisitCardProps {
 
 export default function VisitCard({
   actionId,
+  title,
   detail,
   busy = false,
   onPlan,
@@ -28,35 +30,58 @@ export default function VisitCard({
   onCompleteVisit,
 }: VisitCardProps) {
   const phase = detail?.phase ?? "proposed";
+  const phaseIndex = PHASES.indexOf(phase as (typeof PHASES)[number]);
   const participantStatus = (role: "patient" | "site") =>
     detail?.participants?.find((p) => p.role === role)?.status;
 
   return (
-    <li aria-label={`Visit ${actionId}`}>
-      <strong>{actionId}</strong>
-      <ol aria-label="Visit phases">
-        {PHASES.map((p) => (
-          <li key={p} aria-current={p === phase ? "step" : undefined}>
+    <li aria-label={`Visit ${actionId}`} className="card">
+      <div className="card-header">
+        <strong className="card-title">{title ?? actionId}</strong>
+        <span className="badge">{phase}</span>
+      </div>
+      {title && <div className="meta">{actionId}</div>}
+      <ol aria-label="Visit phases" className="stepper">
+        {PHASES.map((p, index) => (
+          <li
+            key={p}
+            aria-current={p === phase ? "step" : undefined}
+            className={phaseIndex > index ? "done" : undefined}
+          >
             {p}
           </li>
         ))}
       </ol>
 
-      {phase === "revoked" && <p>Revoked — subject withdrawn</p>}
+      {phase === "revoked" && <p className="chip">Revoked — subject withdrawn</p>}
 
-      {phase === "proposed" && <button onClick={onPlan} disabled={busy}>Accept proposal</button>}
-      {phase === "planned" && <button onClick={onOrder} disabled={busy}>Authorize</button>}
-      {phase === "ordered" && <button onClick={onSchedule} disabled={busy}>Schedule</button>}
+      {phase === "proposed" && (
+        <button className="btn" onClick={onPlan} disabled={busy}>
+          Accept proposal
+        </button>
+      )}
+      {phase === "planned" && (
+        <button className="btn" onClick={onOrder} disabled={busy}>
+          Authorize
+        </button>
+      )}
+      {phase === "ordered" && (
+        <button className="btn" onClick={onSchedule} disabled={busy}>
+          Schedule
+        </button>
+      )}
 
       {phase === "scheduled" && (
-        <div aria-label="Appointment responses">
+        <div aria-label="Appointment responses" className="btn-row">
           <button
+            className="btn"
             onClick={() => onRespond("patient")}
             disabled={busy || participantStatus("patient") === "accepted"}
           >
             Patient accepts
           </button>
           <button
+            className="btn-secondary"
             onClick={() => onRespond("site")}
             disabled={busy || participantStatus("site") === "accepted"}
           >
@@ -65,23 +90,35 @@ export default function VisitCard({
         </div>
       )}
 
-      {phase === "booked" && <button onClick={onPerform} disabled={busy}>Perform visit</button>}
+      {phase === "booked" && (
+        <button className="btn" onClick={onPerform} disabled={busy}>
+          Perform visit
+        </button>
+      )}
 
       {phase === "performing" && (
         <div>
-          <ul aria-label="Visit tasks">
+          <ul aria-label="Visit tasks" className="task-list">
             {detail?.tasks?.map((task) => (
               <li key={task.id}>
-                {task.description} — {task.status}
+                <span>
+                  {task.description} — {task.status}
+                </span>
                 {task.status !== "completed" && task.status !== "cancelled" && (
-                  <button onClick={() => onCompleteTask(task.id)} disabled={busy}>
+                  <button
+                    className="btn-secondary"
+                    onClick={() => onCompleteTask(task.id)}
+                    disabled={busy}
+                  >
                     Done: {task.description}
                   </button>
                 )}
               </li>
             ))}
           </ul>
-          <button onClick={onCompleteVisit} disabled={busy}>Complete visit</button>
+          <button className="btn" onClick={onCompleteVisit} disabled={busy}>
+            Complete visit
+          </button>
         </div>
       )}
     </li>
