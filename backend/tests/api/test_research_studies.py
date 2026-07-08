@@ -155,3 +155,76 @@ def test_get_research_study_returns_study_details():
         "status": "active",
         "protocolReferences": ["PlanDefinition/plan-1"],
     }
+
+
+@respx.mock
+def test_list_study_subjects_maps_summaries():
+    respx.get("https://aidbox.test/fhir/ResearchSubject").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "resourceType": "Bundle",
+                "entry": [
+                    {
+                        "resource": {
+                            "resourceType": "ResearchSubject",
+                            "id": "subj-1",
+                            "status": "active",
+                            "subject": {"reference": "Patient/patient-1"},
+                            "identifier": [
+                                {"system": "urn:vulcan-soa:subject-id", "value": "SUBJ-001"}
+                            ],
+                        }
+                    },
+                    {
+                        "resource": {
+                            "resourceType": "ResearchSubject",
+                            "id": "subj-2",
+                            "status": "retired",
+                            "subject": {"reference": "Patient/patient-2"},
+                        }
+                    },
+                ],
+            },
+        )
+    )
+    app = _build_test_app()
+    app.dependency_overrides[get_fhir_client] = lambda: FhirClient(
+        base_url="https://aidbox.test/fhir", access_token="tok-1"
+    )
+    test_client = TestClient(app)
+
+    response = test_client.get("/api/research-studies/study-1/subjects")
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {
+            "researchSubjectId": "subj-1",
+            "subjectIdentifier": "SUBJ-001",
+            "patientId": "patient-1",
+            "status": "active",
+        },
+        {
+            "researchSubjectId": "subj-2",
+            "subjectIdentifier": None,
+            "patientId": "patient-2",
+            "status": "retired",
+        },
+    ]
+
+
+@respx.mock
+def test_list_study_subjects_returns_empty_list():
+    respx.get("https://aidbox.test/fhir/ResearchSubject").mock(
+        return_value=httpx.Response(200, json={"resourceType": "Bundle"})
+    )
+    app = _build_test_app()
+    app.dependency_overrides[get_fhir_client] = lambda: FhirClient(
+        base_url="https://aidbox.test/fhir", access_token="tok-1"
+    )
+    test_client = TestClient(app)
+
+    response = test_client.get("/api/research-studies/study-1/subjects")
+
+    assert response.status_code == 200
+    assert response.json() == []

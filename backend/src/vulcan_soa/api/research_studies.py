@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from vulcan_soa.api.deps import get_fhir_client
 from vulcan_soa.api.models import EnrollRequest
-from vulcan_soa.enrollment import EnrollmentConflict, enroll
+from vulcan_soa.enrollment import EnrollmentConflict, enroll, subject_identifier_of
 from vulcan_soa.fhir_client import FhirClient
 
 router = APIRouter(prefix="/api/research-studies")
@@ -29,6 +29,24 @@ async def get_research_study(study_id: str, client: FhirClient = Depends(get_fhi
             if protocol.get("reference")
         ],
     }
+
+
+@router.get("/{study_id}/subjects")
+async def list_study_subjects(
+    study_id: str, client: FhirClient = Depends(get_fhir_client)
+) -> list[dict]:
+    subjects = await client.search(
+        "ResearchSubject", {"study": f"ResearchStudy/{study_id}"}
+    )
+    return [
+        {
+            "researchSubjectId": subject["id"],
+            "subjectIdentifier": subject_identifier_of(subject),
+            "patientId": subject.get("subject", {}).get("reference", "").split("/", 1)[-1],
+            "status": subject.get("status"),
+        }
+        for subject in subjects
+    ]
 
 
 @router.post("/{study_id}/enroll")

@@ -15,6 +15,7 @@ SUBJECT = {
     "status": "active",
     "study": {"reference": "ResearchStudy/study-1"},
     "subject": {"reference": "Patient/patient-1"},
+    "identifier": [{"system": "urn:vulcan-soa:subject-id", "value": "SUBJ-001"}],
 }
 STUDY = {
     "resourceType": "ResearchStudy",
@@ -96,6 +97,7 @@ def test_get_schedule_returns_resolved_state():
         {"actionId": "screening-1", "title": "Screening", "transitionType": None}
     ]
     assert body["visits"] == {}
+    assert body["subjectIdentifier"] == "SUBJ-001"
 
 
 @respx.mock

@@ -17,6 +17,7 @@ from vulcan_soa.activity_flow import (
 )
 from vulcan_soa.api.deps import get_fhir_client
 from vulcan_soa.api.models import CompleteVisitRequest, RespondRequest
+from vulcan_soa.enrollment import subject_identifier_of
 from vulcan_soa.fhir_client import FhirClient
 from vulcan_soa.scheduling import load_protocol_graph_for_subject, schedule_response
 from vulcan_soa.soa_engine.engine import resolve_schedule_state
@@ -41,7 +42,9 @@ async def get_schedule(subject_id: str, client: FhirClient = Depends(get_fhir_cl
     patient_id = subject["subject"]["reference"].split("/", 1)[1]
     chains = await load_chains(client, patient_id, plan_definition_id)
     state = resolve_schedule_state(graph, context_from_chains(subject, chains))
-    return schedule_response(state, graph, visits=visit_details(chains))
+    payload = schedule_response(state, graph, visits=visit_details(chains))
+    payload["subjectIdentifier"] = subject_identifier_of(subject)
+    return payload
 
 
 @router.post("/{subject_id}/visits/{action_id}/plan")
