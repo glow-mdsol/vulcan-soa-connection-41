@@ -1,10 +1,11 @@
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class EnrollRequest(BaseModel):
     patientId: str
+    subjectIdentifier: str = Field(min_length=1)
 
 
 class CompleteVisitRequest(BaseModel):

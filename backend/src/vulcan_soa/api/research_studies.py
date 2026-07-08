@@ -1,8 +1,8 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from vulcan_soa.api.deps import get_fhir_client
 from vulcan_soa.api.models import EnrollRequest
-from vulcan_soa.enrollment import enroll
+from vulcan_soa.enrollment import EnrollmentConflict, enroll
 from vulcan_soa.fhir_client import FhirClient
 
 router = APIRouter(prefix="/api/research-studies")
@@ -35,4 +35,7 @@ async def get_research_study(study_id: str, client: FhirClient = Depends(get_fhi
 async def enroll_patient(
     study_id: str, body: EnrollRequest, client: FhirClient = Depends(get_fhir_client)
 ) -> dict:
-    return await enroll(client, study_id, body.patientId)
+    try:
+        return await enroll(client, study_id, body.patientId, body.subjectIdentifier)
+    except EnrollmentConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
