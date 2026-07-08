@@ -10,6 +10,7 @@ interface VisitCardProps {
   onPlan: () => void;
   onOrder: () => void;
   onSchedule: () => void;
+  onExpedite: () => void;
   onRespond: (participant: "patient" | "site") => void;
   onPerform: () => void;
   onCompleteTask: (taskId: string) => void;
@@ -24,6 +25,7 @@ export default function VisitCard({
   onPlan,
   onOrder,
   onSchedule,
+  onExpedite,
   onRespond,
   onPerform,
   onCompleteTask,
@@ -56,14 +58,24 @@ export default function VisitCard({
       {phase === "revoked" && <p className="chip">Revoked — subject withdrawn</p>}
 
       {phase === "proposed" && (
-        <button className="btn" onClick={onPlan} disabled={busy}>
-          Accept proposal
-        </button>
+        <div className="btn-row">
+          <button className="btn" onClick={onPlan} disabled={busy}>
+            Accept proposal
+          </button>
+          <button className="btn-secondary" onClick={onExpedite} disabled={busy}>
+            Schedule now
+          </button>
+        </div>
       )}
       {phase === "planned" && (
-        <button className="btn" onClick={onOrder} disabled={busy}>
-          Authorize
-        </button>
+        <div className="btn-row">
+          <button className="btn" onClick={onOrder} disabled={busy}>
+            Authorize
+          </button>
+          <button className="btn-secondary" onClick={onExpedite} disabled={busy}>
+            Schedule now
+          </button>
+        </div>
       )}
       {phase === "ordered" && (
         <button className="btn" onClick={onSchedule} disabled={busy}>

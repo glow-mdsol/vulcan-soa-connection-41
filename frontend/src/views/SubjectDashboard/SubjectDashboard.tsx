@@ -4,6 +4,7 @@ import { useParams } from "react-router-dom";
 import {
   completeTask,
   completeVisit,
+  expediteVisit,
   getSchedule,
   performVisit,
   promoteVisit,
@@ -159,6 +160,9 @@ export default function SubjectDashboard() {
                   onPlan={() => runGate(() => promoteVisit(subjectId!, actionId, "plan"), "Could not accept the proposal.")}
                   onOrder={() => runGate(() => promoteVisit(subjectId!, actionId, "order"), "Could not authorize the visit.")}
                   onSchedule={() => runGate(() => scheduleVisit(subjectId!, actionId), "Could not schedule the visit.")}
+                  onExpedite={() =>
+                    runGate(() => expediteVisit(subjectId!, actionId), "Could not fast-forward this visit.")
+                  }
                   onRespond={(participant) =>
                     runGate(
                       () => respondToAppointment(subjectId!, actionId, participant, "accepted"),

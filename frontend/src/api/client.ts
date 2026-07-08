@@ -79,6 +79,10 @@ export function scheduleVisit(subjectId: string, actionId: string): Promise<Sche
   return postJson<Schedule>(`/api/research-subjects/${subjectId}/visits/${actionId}/schedule`, undefined);
 }
 
+export function expediteVisit(subjectId: string, actionId: string): Promise<Schedule> {
+  return postJson<Schedule>(`/api/research-subjects/${subjectId}/visits/${actionId}/expedite`, undefined);
+}
+
 export function respondToAppointment(
   subjectId: string,
   actionId: string,

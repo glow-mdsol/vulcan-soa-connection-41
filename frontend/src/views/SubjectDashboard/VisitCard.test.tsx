@@ -14,6 +14,7 @@ function noopHandlers() {
     onPerform: vi.fn(),
     onCompleteTask: vi.fn(),
     onCompleteVisit: vi.fn(),
+    onExpedite: vi.fn(),
   };
 }
 
@@ -78,5 +79,29 @@ describe("VisitCard", () => {
     render(<VisitCard actionId="E1" detail={{ phase: "proposed" }} {...handlers} />);
 
     expect(screen.getByLabelText("Visit E1")).toBeInTheDocument();
+  });
+
+  it("shows Schedule now beside the primary gate while proposed and fires onExpedite", async () => {
+    const handlers = noopHandlers();
+    render(<VisitCard actionId="E1" detail={{ phase: "proposed" }} {...handlers} />);
+
+    expect(screen.getByRole("button", { name: "Accept proposal" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Schedule now" }));
+    expect(handlers.onExpedite).toHaveBeenCalled();
+  });
+
+  it("shows Schedule now while planned", () => {
+    const handlers = noopHandlers();
+    render(<VisitCard actionId="E1" detail={{ phase: "planned" }} {...handlers} />);
+
+    expect(screen.getByRole("button", { name: "Authorize" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Schedule now" })).toBeInTheDocument();
+  });
+
+  it("does not show Schedule now once ordered", () => {
+    const handlers = noopHandlers();
+    render(<VisitCard actionId="E1" detail={{ phase: "ordered" }} {...handlers} />);
+
+    expect(screen.queryByRole("button", { name: "Schedule now" })).not.toBeInTheDocument();
   });
 });
