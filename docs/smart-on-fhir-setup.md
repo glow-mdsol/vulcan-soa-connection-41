@@ -59,10 +59,74 @@ pick up the new scopes on its own.
 
 ```json
 {
-  "resourceType": "AccessPolicy",
+  "or": [
+    {
+      "engine": "matcho",
+      "matcho": {
+        "params": {
+          "resource/type": {
+            "$enum": [
+              "Appointment",
+              "ServiceRequest",
+              "Task",
+              "CarePlan",
+              "Encounter",
+              "RequestOrchestration",
+              "Observation",
+              "Procedure",
+              "AppointmentResponse",
+              "CommunicationRequest",
+              "MedicationRequest",
+              "ImagingStudy",
+              "Questionnaire"
+            ]
+          }
+        },
+        "request-method": {
+          "$enum": [
+            "get",
+            "post",
+            "put",
+            "delete"
+          ]
+        }
+      },
+      "description": "Rule 1: Direct CRUD operations on target resource types"
+    },
+    {
+      "engine": "matcho",
+      "matcho": {
+        "uri": {
+          "$enum": [
+            "/",
+            "/_transaction",
+            "/fhir",
+            "/fhir/"
+          ]
+        },
+        "request-method": "post"
+      },
+      "description": "Rule 2: Allow the application to execute Bundle transactions"
+    }
+  ],
+  "link": [
+    {
+      "reference": "Client/vulcan-soa-bff"
+    }
+  ],
+  "engine": "complex",
   "id": "open-for-vulcan-soa-bff",
-  "engine": "allow",
-  "link": [{ "resourceType": "Client", "id": "vulcan-soa-bff" }]
+  "resourceType": "AccessPolicy",
+  "meta": {
+    "lastUpdated": "2026-07-07T19:55:22.540731Z",
+    "versionId": "4633",
+    "extension": [
+      {
+        "url": "https://fhir.aidbox.app/fhir/StructureDefinition/created-at",
+        "valueInstant": "2026-07-06T14:59:21.993199Z"
+      }
+    ]
+  }
 }
 ```
 
