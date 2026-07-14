@@ -64,6 +64,9 @@ async def test_schedule_visit_creates_proposed_appointment_with_participants():
     respx.get("http://aidbox.test/fhir/Appointment").mock(
         return_value=httpx.Response(200, json=_bundle())
     )
+    respx.get("http://aidbox.test/fhir/CarePlan").mock(
+        return_value=httpx.Response(200, json=_bundle())
+    )
     create_route = respx.post("http://aidbox.test/fhir/Appointment").mock(
         return_value=httpx.Response(201, json={"resourceType": "Appointment", "id": "appt-1"})
     )

@@ -37,6 +37,17 @@ def _subject_bundle(*resources):
     return {"resourceType": "Bundle", "entry": [{"resource": r} for r in resources]}
 
 
+def _mock_care_plan_empty():
+    # No CarePlan mirror exists yet in these tests; the mirror lookups don't assert
+    # on its contents, just need `ensure_care_plan`/`_mirror_activity` to no-op cleanly.
+    respx.get("http://aidbox.test/fhir/CarePlan").mock(
+        return_value=httpx.Response(200, json={"resourceType": "Bundle"})
+    )
+    respx.post("http://aidbox.test/fhir/CarePlan").mock(
+        return_value=httpx.Response(201, json={"resourceType": "CarePlan", "id": "cp-1"})
+    )
+
+
 @respx.mock
 async def test_enroll_creates_subject_and_materializes_root_visit():
     _mock_protocol()
@@ -55,6 +66,41 @@ async def test_enroll_creates_subject_and_materializes_root_visit():
     )
     create_service_request_route = respx.post("http://aidbox.test/fhir/ServiceRequest").mock(
         return_value=httpx.Response(201, json={"resourceType": "ServiceRequest", "id": "sr-1"})
+    )
+    respx.get("http://aidbox.test/fhir/CarePlan").mock(
+        side_effect=[
+            httpx.Response(200, json={"resourceType": "Bundle"}),  # ensure_care_plan: not found yet
+            httpx.Response(  # _mirror_activity (via materialize_proposal): now it exists
+                200,
+                json={
+                    "resourceType": "Bundle",
+                    "entry": [
+                        {
+                            "resource": {
+                                "resourceType": "CarePlan", "id": "cp-1", "status": "active",
+                                "intent": "plan", "subject": {"reference": "Patient/patient-1"},
+                                "identifier": [{"system": "urn:vulcan-soa:care-plan", "value": "plan-1"}],
+                                "activity": [],
+                            }
+                        }
+                    ],
+                },
+            ),
+        ]
+    )
+    create_care_plan_route = respx.post("http://aidbox.test/fhir/CarePlan").mock(
+        return_value=httpx.Response(
+            201,
+            json={
+                "resourceType": "CarePlan", "id": "cp-1", "status": "active", "intent": "plan",
+                "subject": {"reference": "Patient/patient-1"},
+                "identifier": [{"system": "urn:vulcan-soa:care-plan", "value": "plan-1"}],
+                "activity": [],
+            },
+        )
+    )
+    care_plan_update_route = respx.put("http://aidbox.test/fhir/CarePlan/cp-1").mock(
+        return_value=httpx.Response(200, json={"resourceType": "CarePlan", "id": "cp-1"})
     )
 
     client = FhirClient(base_url="http://aidbox.test/fhir", access_token="tok")
@@ -75,6 +121,17 @@ async def test_enroll_creates_subject_and_materializes_root_visit():
     assert subject_payload["identifier"] == [
         {"system": "urn:vulcan-soa:subject-id", "value": "SUBJ-001"},
         {"system": "urn:vulcan-soa:plan-definition", "value": "plan-1"},
+    ]
+    # Enrollment creates the additive CPGCarePlan mirror, then the root visit's
+    # proposal materialization points its activity entry at the new ServiceRequest.
+    care_plan_payload = json.loads(create_care_plan_route.calls.last.request.content)
+    assert care_plan_payload["subject"] == {"reference": "Patient/patient-1"}
+    assert care_plan_payload["identifier"] == [
+        {"system": "urn:vulcan-soa:care-plan", "value": "plan-1"}
+    ]
+    mirrored_payload = json.loads(care_plan_update_route.calls.last.request.content)
+    assert mirrored_payload["activity"] == [
+        {"id": "screening-1", "plannedActivityReference": {"reference": "ServiceRequest/sr-1"}}
     ]
 
 
@@ -98,6 +155,7 @@ async def test_enroll_is_idempotent_via_conditional_create():
     respx.post("http://aidbox.test/fhir/ServiceRequest").mock(
         return_value=httpx.Response(201, json={"resourceType": "ServiceRequest", "id": "sr-1"})
     )
+    _mock_care_plan_empty()
 
     client = FhirClient(base_url="http://aidbox.test/fhir", access_token="tok")
     result = await enroll(client, "uc1-demo-research-study", "patient-1", "SUBJ-001")
@@ -147,6 +205,7 @@ async def test_reenroll_same_patient_same_identifier_is_idempotent(monkeypatch):
     respx.post("http://aidbox.test/fhir/ServiceRequest").mock(
         return_value=httpx.Response(201, json={"resourceType": "ServiceRequest", "id": "sr-1"})
     )
+    _mock_care_plan_empty()
     update_route = respx.put("http://aidbox.test/fhir/ResearchSubject/subj-existing")
 
     # Spy on the reconciliation's identifier lookup so this test fails (not just
@@ -215,6 +274,7 @@ async def test_legacy_subject_without_identifier_gains_one_via_update():
     respx.post("http://aidbox.test/fhir/ServiceRequest").mock(
         return_value=httpx.Response(201, json={"resourceType": "ServiceRequest", "id": "sr-1"})
     )
+    _mock_care_plan_empty()
 
     client = FhirClient(base_url="http://aidbox.test/fhir", access_token="tok")
     result = await enroll(client, "uc1-demo-research-study", "patient-1", "SUBJ-009")

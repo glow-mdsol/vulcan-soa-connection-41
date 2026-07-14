@@ -56,7 +56,7 @@ async def test_withdraw_subject_updates_subject_state():
     respx.get("http://aidbox.test/fhir/PlanDefinition/plan-1").mock(
         return_value=httpx.Response(200, json=PLAN_DEFINITION)
     )
-    for resource_type in ("ServiceRequest", "Appointment", "Encounter", "Task"):
+    for resource_type in ("ServiceRequest", "Appointment", "Encounter", "Task", "RequestOrchestration", "CarePlan"):
         respx.get(f"http://aidbox.test/fhir/{resource_type}").mock(
             return_value=httpx.Response(200, json={"resourceType": "Bundle"})
         )
@@ -137,7 +137,7 @@ async def test_delete_enrollment_revokes_open_work_and_deletes_subject():
             json={"resourceType": "Bundle", "entry": [{"resource": active_request}]},
         )
     )
-    for resource_type in ("Appointment", "Encounter", "Task"):
+    for resource_type in ("Appointment", "Encounter", "Task", "RequestOrchestration", "CarePlan"):
         respx.get(f"http://aidbox.test/fhir/{resource_type}").mock(
             return_value=httpx.Response(200, json={"resourceType": "Bundle"})
         )

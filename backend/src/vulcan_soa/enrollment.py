@@ -1,6 +1,6 @@
 import datetime
 
-from vulcan_soa.activity_flow import if_match_header, materialize_proposal
+from vulcan_soa.activity_flow import ensure_care_plan, if_match_header, materialize_proposal
 from vulcan_soa.fhir_client import FhirClient
 from vulcan_soa.scheduling import (
     PLAN_DEFINITION_TAG_SYSTEM,
@@ -102,6 +102,8 @@ async def enroll(
         created = await client.update(
             "ResearchSubject", created["id"], created, if_match=if_match_header(created)
         )
+
+    await ensure_care_plan(client, patient_id, plan_definition_id)
 
     initial_context = SubjectContext(
         withdrawn=False, visited_action_ids=frozenset(), completed_action_ids=frozenset()

@@ -115,6 +115,9 @@ async def test_perform_creates_encounter_and_ready_tasks():
     respx.get("http://aidbox.test/fhir/Task").mock(
         return_value=httpx.Response(200, json=_bundle())
     )
+    respx.get("http://aidbox.test/fhir/CarePlan").mock(
+        return_value=httpx.Response(200, json=_bundle())
+    )
     encounter_route = respx.post("http://aidbox.test/fhir/Encounter").mock(
         return_value=httpx.Response(201, json={"resourceType": "Encounter", "id": "enc-1"})
     )
@@ -291,6 +294,34 @@ E3_PROPOSAL = {
     "code": {"concept": {"text": "Branch B"}},
 }
 
+BRANCH_ORCHESTRATION = {
+    "resourceType": "RequestOrchestration", "id": "ro-1", "status": "active", "intent": "proposal",
+    "subject": {"reference": "Patient/p-1"},
+    "identifier": [{"system": "urn:vulcan-soa:branch-option", "value": "pd-1#E1"}],
+    "action": [
+        {
+            "title": "Next visit",
+            "selectionBehavior": "exactly-one",
+            "action": [
+                {"id": "E2", "title": "Branch A", "resource": {"reference": "ServiceRequest/sr-opt-e2"}},
+                {"id": "E3", "title": "Branch B", "resource": {"reference": "ServiceRequest/sr-opt-e3"}},
+            ],
+        }
+    ],
+}
+OPTION_E2 = {
+    "resourceType": "ServiceRequest", "id": "sr-opt-e2", "intent": "option", "status": "active",
+    "subject": {"reference": "Patient/p-1"},
+    "identifier": [{"system": "urn:vulcan-soa:branch-option", "value": "pd-1#E2"}],
+    "code": {"concept": {"text": "Branch A"}},
+}
+OPTION_E3 = {
+    "resourceType": "ServiceRequest", "id": "sr-opt-e3", "intent": "option", "status": "active",
+    "subject": {"reference": "Patient/p-1"},
+    "identifier": [{"system": "urn:vulcan-soa:branch-option", "value": "pd-1#E3"}],
+    "code": {"concept": {"text": "Branch B"}},
+}
+
 
 @respx.mock
 async def test_complete_with_transition_choice_materializes_chosen_proposal():
@@ -333,6 +364,14 @@ async def test_complete_with_transition_choice_materializes_chosen_proposal():
     )
     create_route = respx.post("http://aidbox.test/fhir/ServiceRequest").mock(
         return_value=httpx.Response(201, json={"resourceType": "ServiceRequest", "id": "sr-e3"})
+    )
+    # No prior /complete(None) call means no branch RequestOrchestration exists yet;
+    # resolving against an empty search must be a no-op, not a hard failure.
+    respx.get("http://aidbox.test/fhir/RequestOrchestration").mock(
+        return_value=httpx.Response(200, json=_bundle())
+    )
+    respx.get("http://aidbox.test/fhir/CarePlan").mock(
+        return_value=httpx.Response(200, json=_bundle())
     )
 
     client = FhirClient(base_url="http://aidbox.test/fhir", access_token="tok")
@@ -397,7 +436,35 @@ async def test_complete_ambiguous_then_choice_two_calls():
         return_value=httpx.Response(200, json=dict(IN_PROGRESS_ENCOUNTER, status="completed"))
     )
     create_route = respx.post("http://aidbox.test/fhir/ServiceRequest").mock(
-        return_value=httpx.Response(201, json={"resourceType": "ServiceRequest", "id": "sr-e3"})
+        side_effect=[
+            httpx.Response(201, json=OPTION_E2),  # call 1: branch option for E2
+            httpx.Response(201, json=OPTION_E3),  # call 1: branch option for E3
+            httpx.Response(201, json={"resourceType": "ServiceRequest", "id": "sr-e3"}),  # call 2: chosen proposal
+        ]
+    )
+    orchestration_route = respx.post("http://aidbox.test/fhir/RequestOrchestration").mock(
+        return_value=httpx.Response(201, json=BRANCH_ORCHESTRATION)
+    )
+    respx.get("http://aidbox.test/fhir/RequestOrchestration").mock(
+        return_value=httpx.Response(200, json=_bundle(BRANCH_ORCHESTRATION))
+    )
+    respx.get("http://aidbox.test/fhir/ServiceRequest/sr-opt-e2").mock(
+        return_value=httpx.Response(200, json=OPTION_E2)
+    )
+    respx.get("http://aidbox.test/fhir/ServiceRequest/sr-opt-e3").mock(
+        return_value=httpx.Response(200, json=OPTION_E3)
+    )
+    option_e2_update = respx.put("http://aidbox.test/fhir/ServiceRequest/sr-opt-e2").mock(
+        return_value=httpx.Response(200, json=dict(OPTION_E2, status="revoked"))
+    )
+    option_e3_update = respx.put("http://aidbox.test/fhir/ServiceRequest/sr-opt-e3").mock(
+        return_value=httpx.Response(200, json=dict(OPTION_E3, status="completed"))
+    )
+    orchestration_update = respx.put("http://aidbox.test/fhir/RequestOrchestration/ro-1").mock(
+        return_value=httpx.Response(200, json=dict(BRANCH_ORCHESTRATION, status="completed"))
+    )
+    respx.get("http://aidbox.test/fhir/CarePlan").mock(
+        return_value=httpx.Response(200, json=_bundle())
     )
 
     client = FhirClient(base_url="http://aidbox.test/fhir", access_token="tok")
@@ -405,17 +472,26 @@ async def test_complete_ambiguous_then_choice_two_calls():
     first = await complete(client, "subj-1", "E1", None)
     assert first["ambiguous"] is True
     assert {s["actionId"] for s in first["nextSteps"]} == {"E2", "E3"}
-    assert create_route.call_count == 0  # nothing materialized yet
+    assert create_route.call_count == 2  # the two branch options, nothing materialized yet
+    orchestration_payload = json.loads(orchestration_route.calls.last.request.content)
+    assert orchestration_payload["action"][0]["selectionBehavior"] == "exactly-one"
+    assert {a["id"] for a in orchestration_payload["action"][0]["action"]} == {"E2", "E3"}
 
     # Second call must not raise PhaseError even though the Encounter is completed.
     second = await complete(client, "subj-1", "E1", "E3")
     await client.close()
 
-    assert create_route.call_count == 1
+    assert create_route.call_count == 3
     payload = json.loads(create_route.calls.last.request.content)
     assert payload["identifier"] == [{"system": "urn:vulcan-soa:plan-action", "value": "pd-1#E3"}]
     assert second["ambiguous"] is False
     assert "E3" in second["current"]
+
+    # The chosen option resolves to completed, the other to revoked, and the
+    # orchestration itself is closed out.
+    assert json.loads(option_e3_update.calls.last.request.content)["status"] == "completed"
+    assert json.loads(option_e2_update.calls.last.request.content)["status"] == "revoked"
+    assert json.loads(orchestration_update.calls.last.request.content)["status"] == "completed"
 
 
 def test_visit_chain_with_revoked_order_derives_revoked():
@@ -467,6 +543,12 @@ async def test_revoke_open_workflow_revokes_and_cancels():
     respx.get("http://aidbox.test/fhir/Task").mock(
         return_value=httpx.Response(200, json=_bundle(ready_task))
     )
+    respx.get("http://aidbox.test/fhir/RequestOrchestration").mock(
+        return_value=httpx.Response(200, json=_bundle())
+    )
+    respx.get("http://aidbox.test/fhir/CarePlan").mock(
+        return_value=httpx.Response(200, json=_bundle())
+    )
     request_update = respx.put("http://aidbox.test/fhir/ServiceRequest/sr-visit-order").mock(
         return_value=httpx.Response(200, json=dict(active_order, status="revoked"))
     )
@@ -484,3 +566,88 @@ async def test_revoke_open_workflow_revokes_and_cancels():
     assert json.loads(request_update.calls.last.request.content)["status"] == "revoked"
     assert json.loads(appointment_update.calls.last.request.content)["status"] == "cancelled"
     assert json.loads(task_update.calls.last.request.content)["status"] == "cancelled"
+
+
+@respx.mock
+async def test_revoke_open_workflow_revokes_pending_branch_orchestration():
+    # A subject can withdraw while a branch decision (RequestOrchestration + its
+    # `option`-intent ServiceRequests) is still pending; withdrawal must close
+    # those out too, not just the normal chain resources.
+    respx.get("http://aidbox.test/fhir/ServiceRequest").mock(
+        return_value=httpx.Response(200, json=_bundle())
+    )
+    respx.get("http://aidbox.test/fhir/Appointment").mock(
+        return_value=httpx.Response(200, json=_bundle())
+    )
+    respx.get("http://aidbox.test/fhir/Encounter").mock(
+        return_value=httpx.Response(200, json=_bundle())
+    )
+    respx.get("http://aidbox.test/fhir/Task").mock(
+        return_value=httpx.Response(200, json=_bundle())
+    )
+    respx.get("http://aidbox.test/fhir/RequestOrchestration").mock(
+        return_value=httpx.Response(200, json=_bundle(BRANCH_ORCHESTRATION))
+    )
+    respx.get("http://aidbox.test/fhir/ServiceRequest/sr-opt-e2").mock(
+        return_value=httpx.Response(200, json=OPTION_E2)
+    )
+    respx.get("http://aidbox.test/fhir/ServiceRequest/sr-opt-e3").mock(
+        return_value=httpx.Response(200, json=OPTION_E3)
+    )
+    option_e2_update = respx.put("http://aidbox.test/fhir/ServiceRequest/sr-opt-e2").mock(
+        return_value=httpx.Response(200, json=dict(OPTION_E2, status="revoked"))
+    )
+    option_e3_update = respx.put("http://aidbox.test/fhir/ServiceRequest/sr-opt-e3").mock(
+        return_value=httpx.Response(200, json=dict(OPTION_E3, status="revoked"))
+    )
+    orchestration_update = respx.put("http://aidbox.test/fhir/RequestOrchestration/ro-1").mock(
+        return_value=httpx.Response(200, json=dict(BRANCH_ORCHESTRATION, status="revoked"))
+    )
+    respx.get("http://aidbox.test/fhir/CarePlan").mock(
+        return_value=httpx.Response(200, json=_bundle())
+    )
+
+    client = FhirClient(base_url="http://aidbox.test/fhir", access_token="tok")
+    await revoke_open_workflow(client, "p-1", "pd-1")
+    await client.close()
+
+    assert json.loads(option_e2_update.calls.last.request.content)["status"] == "revoked"
+    assert json.loads(option_e3_update.calls.last.request.content)["status"] == "revoked"
+    assert json.loads(orchestration_update.calls.last.request.content)["status"] == "revoked"
+
+
+@respx.mock
+async def test_revoke_open_workflow_revokes_care_plan_mirror():
+    respx.get("http://aidbox.test/fhir/ServiceRequest").mock(
+        return_value=httpx.Response(200, json=_bundle())
+    )
+    respx.get("http://aidbox.test/fhir/Appointment").mock(
+        return_value=httpx.Response(200, json=_bundle())
+    )
+    respx.get("http://aidbox.test/fhir/Encounter").mock(
+        return_value=httpx.Response(200, json=_bundle())
+    )
+    respx.get("http://aidbox.test/fhir/Task").mock(
+        return_value=httpx.Response(200, json=_bundle())
+    )
+    respx.get("http://aidbox.test/fhir/RequestOrchestration").mock(
+        return_value=httpx.Response(200, json=_bundle())
+    )
+    active_care_plan = {
+        "resourceType": "CarePlan", "id": "cp-1", "status": "active", "intent": "plan",
+        "subject": {"reference": "Patient/p-1"}, "meta": {"versionId": "1"},
+        "identifier": [{"system": "urn:vulcan-soa:care-plan", "value": "pd-1"}],
+        "activity": [],
+    }
+    respx.get("http://aidbox.test/fhir/CarePlan").mock(
+        return_value=httpx.Response(200, json=_bundle(active_care_plan))
+    )
+    care_plan_update = respx.put("http://aidbox.test/fhir/CarePlan/cp-1").mock(
+        return_value=httpx.Response(200, json=dict(active_care_plan, status="revoked"))
+    )
+
+    client = FhirClient(base_url="http://aidbox.test/fhir", access_token="tok")
+    await revoke_open_workflow(client, "p-1", "pd-1")
+    await client.close()
+
+    assert json.loads(care_plan_update.calls.last.request.content)["status"] == "revoked"

@@ -15,11 +15,13 @@ from vulcan_soa.scheduling import (
     schedule_response,
 )
 from vulcan_soa.soa_engine.conditions import SubjectContext
-from vulcan_soa.soa_engine.engine import resolve_schedule_state
+from vulcan_soa.soa_engine.engine import NextStep, resolve_schedule_state
 from vulcan_soa.soa_engine.graph import ProtocolGraph, VisitNode
 
 ACTION_TAG_SYSTEM = "urn:vulcan-soa:plan-action"
 GROUP_ID_SYSTEM = "urn:vulcan-soa:promotion"
+BRANCH_TAG_SYSTEM = "urn:vulcan-soa:branch-option"
+CARE_PLAN_TAG_SYSTEM = "urn:vulcan-soa:care-plan"
 SITE_PRACTITIONER_ID = "site-coordinator-demo"
 
 _PARTICIPANT_ROLES = {"Patient": "patient", "Practitioner": "site"}
@@ -188,6 +190,58 @@ async def load_chains(
     return chains
 
 
+def _care_plan_search_params(patient_id: str, plan_definition_id: str) -> dict:
+    return {
+        "subject": f"Patient/{patient_id}",
+        "identifier": f"{CARE_PLAN_TAG_SYSTEM}|{plan_definition_id}",
+    }
+
+
+async def ensure_care_plan(client: FhirClient, patient_id: str, plan_definition_id: str) -> dict:
+    """Additive CPGCarePlan mirror: one CarePlan per subject enrollment, aggregating
+    a pointer to each visit's current activity resource. Nothing in the app reads
+    this back — it exists purely as a real, inspectable-in-Aidbox artifact alongside
+    the tag-search-derived state `load_chains` already computes.
+    """
+    return await client.conditional_create(
+        "CarePlan",
+        {
+            "resourceType": "CarePlan",
+            "status": "active",
+            "intent": "plan",
+            "subject": {"reference": f"Patient/{patient_id}"},
+            "identifier": [{"system": CARE_PLAN_TAG_SYSTEM, "value": plan_definition_id}],
+            "activity": [],
+        },
+        _care_plan_search_params(patient_id, plan_definition_id),
+    )
+
+
+async def _mirror_activity(
+    client: FhirClient,
+    patient_id: str,
+    plan_definition_id: str,
+    action_id: str,
+    *,
+    planned: dict | None = None,
+    performed: dict | None = None,
+) -> None:
+    matches = await client.search("CarePlan", _care_plan_search_params(patient_id, plan_definition_id))
+    if not matches:
+        return
+    care_plan = matches[0]
+    activities: list[dict] = care_plan.setdefault("activity", [])
+    entry = next((a for a in activities if a.get("id") == action_id), None)
+    if entry is None:
+        entry = {"id": action_id}
+        activities.append(entry)
+    if planned is not None:
+        entry["plannedActivityReference"] = planned
+    if performed is not None:
+        entry["performedActivity"] = [{"reference": performed}]
+    await client.update("CarePlan", care_plan["id"], care_plan, if_match=if_match_header(care_plan))
+
+
 async def materialize_proposal(
     client: FhirClient, patient_id: str, plan_definition_id: str, node: VisitNode
 ) -> dict:
@@ -204,6 +258,10 @@ async def materialize_proposal(
     if node.definition_uri:
         visit_request["instantiatesUri"] = [node.definition_uri]
     created_visit = await client.create("ServiceRequest", visit_request)
+    await _mirror_activity(
+        client, patient_id, plan_definition_id, node.action_id,
+        planned={"reference": f"ServiceRequest/{created_visit['id']}"},
+    )
 
     for definition in await _load_activity_definitions(client, node):
         activity_request = {
@@ -611,6 +669,10 @@ async def promote(client: FhirClient, subject_id: str, action_id: str, to_intent
         "ServiceRequest", _next_request(previous_visit, to_intent, group, based_on=[previous_visit])
     )
     await _complete_request(client, previous_visit)
+    await _mirror_activity(
+        client, workspace.patient_id, workspace.plan_definition_id, action_id,
+        planned={"reference": f"ServiceRequest/{created_visit['id']}"},
+    )
 
     for by_intent in chain.activities.values():
         previous_activity = by_intent.get(previous_intent)
@@ -639,7 +701,7 @@ async def schedule_visit(client: FhirClient, subject_id: str, action_id: str) ->
     chain = _require_phase(workspace.chains.get(action_id), action_id, "ordered")
     order = chain.requests["order"]
     start, end = _default_appointment_window()
-    await client.create(
+    created_appointment = await client.create(
         "Appointment",
         {
             "resourceType": "Appointment",
@@ -653,6 +715,10 @@ async def schedule_visit(client: FhirClient, subject_id: str, action_id: str) ->
                 {"actor": {"reference": f"Practitioner/{SITE_PRACTITIONER_ID}"}, "status": "needs-action"},
             ],
         },
+    )
+    await _mirror_activity(
+        client, workspace.patient_id, workspace.plan_definition_id, action_id,
+        planned={"reference": f"Appointment/{created_appointment['id']}"},
     )
     return await schedule_payload(client, workspace)
 
@@ -750,6 +816,10 @@ async def perform(client: FhirClient, subject_id: str, action_id: str) -> dict:
             "identifier": [visit_tag(workspace.plan_definition_id, action_id)],
         },
     )
+    await _mirror_activity(
+        client, workspace.patient_id, workspace.plan_definition_id, action_id,
+        performed={"reference": f"Encounter/{created_encounter['id']}"},
+    )
 
     for activity_id, by_intent in chain.activities.items():
         activity_order = by_intent.get("order")
@@ -817,6 +887,72 @@ def _all_requests(chain: VisitChain) -> list[dict]:
     return [*chain.requests.values(), *activity_requests]
 
 
+def _branch_identifier(plan_definition_id: str, source_action_id: str) -> dict:
+    return {"system": BRANCH_TAG_SYSTEM, "value": f"{plan_definition_id}#{source_action_id}"}
+
+
+async def _ensure_branch(
+    client: FhirClient,
+    plan_definition_id: str,
+    patient_id: str,
+    source_action_id: str,
+    next_steps: tuple[NextStep, ...],
+) -> None:
+    """Represent a pending branch decision as a RequestOrchestration, per the FHIR
+    $apply pattern: one `option`-intent ServiceRequest per candidate, grouped under
+    an `exactly-one` selection — real, inspectable resources instead of only the
+    engine's in-memory `next_steps`.
+    """
+    actions = []
+    for step in next_steps:
+        option = await client.create(
+            "ServiceRequest",
+            {
+                "resourceType": "ServiceRequest",
+                "status": "active",
+                "intent": "option",
+                "subject": {"reference": f"Patient/{patient_id}"},
+                "identifier": [{"system": BRANCH_TAG_SYSTEM, "value": f"{plan_definition_id}#{step.action_id}"}],
+                "code": {"concept": {"text": step.title}},
+            },
+        )
+        actions.append(
+            {"id": step.action_id, "title": step.title, "resource": {"reference": f"ServiceRequest/{option['id']}"}}
+        )
+    await client.create(
+        "RequestOrchestration",
+        {
+            "resourceType": "RequestOrchestration",
+            "status": "active",
+            "intent": "proposal",
+            "subject": {"reference": f"Patient/{patient_id}"},
+            "identifier": [_branch_identifier(plan_definition_id, source_action_id)],
+            "action": [{"title": "Next visit", "selectionBehavior": "exactly-one", "action": actions}],
+        },
+    )
+
+
+async def _resolve_branch(
+    client: FhirClient, plan_definition_id: str, source_action_id: str, chosen_action_id: str
+) -> None:
+    identifier = _branch_identifier(plan_definition_id, source_action_id)
+    matches = await client.search(
+        "RequestOrchestration", {"identifier": f"{identifier['system']}|{identifier['value']}"}
+    )
+    if not matches:
+        return
+    orchestration = matches[0]
+    for entry in orchestration["action"][0]["action"]:
+        option_id = entry["resource"]["reference"].split("/", 1)[1]
+        option = await client.read("ServiceRequest", option_id)
+        option["status"] = "completed" if entry["id"] == chosen_action_id else "revoked"
+        await client.update("ServiceRequest", option_id, option, if_match=if_match_header(option))
+    orchestration["status"] = "completed"
+    await client.update(
+        "RequestOrchestration", orchestration["id"], orchestration, if_match=if_match_header(orchestration)
+    )
+
+
 async def complete(
     client: FhirClient, subject_id: str, action_id: str, transition_choice: str | None
 ) -> dict:
@@ -859,13 +995,21 @@ async def complete(
             await materialize_proposal(
                 client, workspace.patient_id, workspace.plan_definition_id, node
             )
-    elif len(state.next_steps) > 1 and transition_choice is not None:
-        chosen = next((s for s in state.next_steps if s.action_id == transition_choice), None)
-        if chosen is not None and unmaterialized(chosen.action_id):
-            node = workspace.graph.nodes[chosen.action_id]
-            await materialize_proposal(
-                client, workspace.patient_id, workspace.plan_definition_id, node
+    elif len(state.next_steps) > 1:
+        if transition_choice is None:
+            await _ensure_branch(
+                client, workspace.plan_definition_id, workspace.patient_id, action_id, state.next_steps
             )
+        else:
+            chosen = next((s for s in state.next_steps if s.action_id == transition_choice), None)
+            if chosen is not None and unmaterialized(chosen.action_id):
+                node = workspace.graph.nodes[chosen.action_id]
+                await materialize_proposal(
+                    client, workspace.patient_id, workspace.plan_definition_id, node
+                )
+                await _resolve_branch(
+                    client, workspace.plan_definition_id, action_id, transition_choice
+                )
 
     # Recompute the returned state from the FINAL chains so a freshly materialized
     # proposal is reflected in `current` (otherwise the UI dead-ends).
@@ -877,6 +1021,32 @@ async def complete(
 
 
 async def revoke_open_workflow(client: FhirClient, patient_id: str, plan_definition_id: str) -> None:
+    patient_reference = f"Patient/{patient_id}"
+
+    # Branch orchestrations live outside `chains` (see BRANCH_TAG_SYSTEM), so a
+    # pending decision needs its own sweep here rather than falling out of the
+    # loop below.
+    for orchestration in await client.search("RequestOrchestration", {"identifier": f"{BRANCH_TAG_SYSTEM}|"}):
+        if orchestration.get("subject", {}).get("reference") != patient_reference:
+            continue
+        if orchestration.get("status") != "active":
+            continue
+        for entry in orchestration["action"][0]["action"]:
+            option_id = entry["resource"]["reference"].split("/", 1)[1]
+            option = await client.read("ServiceRequest", option_id)
+            option["status"] = "revoked"
+            await client.update("ServiceRequest", option_id, option, if_match=if_match_header(option))
+        orchestration["status"] = "revoked"
+        await client.update(
+            "RequestOrchestration", orchestration["id"], orchestration, if_match=if_match_header(orchestration)
+        )
+
+    care_plans = await client.search("CarePlan", _care_plan_search_params(patient_id, plan_definition_id))
+    if care_plans and care_plans[0].get("status") == "active":
+        care_plan = care_plans[0]
+        care_plan["status"] = "revoked"
+        await client.update("CarePlan", care_plan["id"], care_plan, if_match=if_match_header(care_plan))
+
     chains = await load_chains(client, patient_id, plan_definition_id)
     for chain in chains.values():
         for request in _all_requests(chain):

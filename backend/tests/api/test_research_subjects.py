@@ -357,7 +357,7 @@ def test_withdraw_route_updates_subject_state():
     respx.get("https://aidbox.test/fhir/PlanDefinition/plan-1").mock(
         return_value=httpx.Response(200, json=PLAN_DEFINITION)
     )
-    for resource_type in ("ServiceRequest", "Appointment", "Encounter", "Task"):
+    for resource_type in ("ServiceRequest", "Appointment", "Encounter", "Task", "RequestOrchestration", "CarePlan"):
         respx.get(f"https://aidbox.test/fhir/{resource_type}").mock(
             return_value=httpx.Response(200, json={"resourceType": "Bundle"})
         )

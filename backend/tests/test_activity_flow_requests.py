@@ -34,6 +34,10 @@ async def test_materialize_proposal_creates_visit_and_activity_requests():
     respx.get("http://aidbox.test/fhir/ActivityDefinition/act-consent").mock(
         return_value=httpx.Response(200, json=CONSENT_AD)
     )
+    # No CarePlan mirror exists for this subject; the mirror lookup must no-op.
+    respx.get("http://aidbox.test/fhir/CarePlan").mock(
+        return_value=httpx.Response(200, json=_bundle())
+    )
     create_route = respx.post("http://aidbox.test/fhir/ServiceRequest").mock(
         side_effect=[
             httpx.Response(201, json={"resourceType": "ServiceRequest", "id": "sr-visit"}),
@@ -71,6 +75,9 @@ async def test_materialize_proposal_creates_visit_and_activity_requests():
 
 @respx.mock
 async def test_materialize_proposal_without_definition_uri_creates_only_visit_request():
+    respx.get("http://aidbox.test/fhir/CarePlan").mock(
+        return_value=httpx.Response(200, json=_bundle())
+    )
     create_route = respx.post("http://aidbox.test/fhir/ServiceRequest").mock(
         return_value=httpx.Response(201, json={"resourceType": "ServiceRequest", "id": "sr-visit"})
     )
@@ -83,6 +90,38 @@ async def test_materialize_proposal_without_definition_uri_creates_only_visit_re
     assert create_route.call_count == 1
     payload = json.loads(create_route.calls[0].request.content)
     assert "instantiatesUri" not in payload
+
+
+@respx.mock
+async def test_materialize_proposal_mirrors_planned_activity_reference_into_care_plan():
+    # Additive CPGCarePlan mirror: when a CarePlan already exists for this subject
+    # (created at enrollment), materializing a proposal must point that visit's
+    # activity entry at the newly created ServiceRequest.
+    existing_care_plan = {
+        "resourceType": "CarePlan", "id": "cp-1", "status": "active", "intent": "plan",
+        "subject": {"reference": "Patient/p-1"}, "meta": {"versionId": "1"},
+        "identifier": [{"system": "urn:vulcan-soa:care-plan", "value": "pd-1"}],
+        "activity": [],
+    }
+    respx.get("http://aidbox.test/fhir/CarePlan").mock(
+        return_value=httpx.Response(200, json=_bundle(existing_care_plan))
+    )
+    respx.post("http://aidbox.test/fhir/ServiceRequest").mock(
+        return_value=httpx.Response(201, json={"resourceType": "ServiceRequest", "id": "sr-visit"})
+    )
+    care_plan_update = respx.put("http://aidbox.test/fhir/CarePlan/cp-1").mock(
+        return_value=httpx.Response(200, json=existing_care_plan)
+    )
+
+    node = VisitNode(action_id="screening-1", title="Screening", transitions=())
+    client = FhirClient(base_url="http://aidbox.test/fhir", access_token="tok")
+    await materialize_proposal(client, "p-1", "pd-1", node)
+    await client.close()
+
+    payload = json.loads(care_plan_update.calls.last.request.content)
+    assert payload["activity"] == [
+        {"id": "screening-1", "plannedActivityReference": {"reference": "ServiceRequest/sr-visit"}}
+    ]
 
 
 SUBJECT = {
@@ -148,7 +187,7 @@ async def test_promote_to_plan_creates_new_requests_and_completes_predecessors()
     respx.get("http://aidbox.test/fhir/ServiceRequest").mock(
         return_value=httpx.Response(200, json=_bundle(visit_proposal, activity_proposal))
     )
-    _mock_empty_searches("Appointment", "Encounter", "Task")
+    _mock_empty_searches("Appointment", "Encounter", "Task", "CarePlan")
     create_route = respx.post("http://aidbox.test/fhir/ServiceRequest").mock(
         side_effect=[
             httpx.Response(201, json={"resourceType": "ServiceRequest", "id": "sr-visit-plan"}),

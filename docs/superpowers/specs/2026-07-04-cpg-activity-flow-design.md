@@ -224,10 +224,84 @@ from the extension-URL configurability.
 - Playwright E2E updated to click through the gates, responses, and one Task tick on
   the dashboard.
 
+## Addendum (2026-07-13) — Branch decisions as RequestOrchestration
+
+Ambiguous next-steps (2+ candidates off a completed visit) are now represented as a
+real `RequestOrchestration`, not just the engine's in-memory `next_steps`, per the
+FHIR `$apply` pattern ("systems may choose to return the results in a
+RequestOrchestration... individual request resources will have an intent of
+`option`"):
+
+- When `complete()` first finds an ambiguous branch (`transition_choice is None`),
+  it creates one `option`-intent `ServiceRequest` per candidate (tagged
+  `urn:vulcan-soa:branch-option | <protocolPdId>#<candidateActionId>` — deliberately
+  a *separate* identifier system from `ACTION_TAG_SYSTEM` so these stay out of
+  `load_chains`/the phase state machine until a choice is made), wrapped in a
+  `RequestOrchestration` (`action[0].selectionBehavior: exactly-one`,
+  `action[0].action[]` nesting one entry per candidate with `id: <candidateActionId>`
+  and `resource` → the option).
+- The second call (`transition_choice` set) still materializes the chosen visit's
+  proposal exactly as before, and additionally resolves the branch: the chosen
+  option flips to `status: completed`, the others to `revoked`, and the
+  `RequestOrchestration` itself to `completed`.
+- `revoke_open_workflow` sweeps any still-`active` branch orchestration for the
+  patient (options → `revoked`, orchestration → `revoked`) so a withdrawal mid-decision
+  doesn't leave dangling `active` resources.
+- Scope: this only covers the branch-choice/grouping problem. The visit+activity
+  cascade at each promotion step still uses `ServiceRequest.requisition` — replacing
+  that too was considered and deliberately deferred as a separate, larger change.
+
+See `backend/src/vulcan_soa/activity_flow.py` (`_ensure_branch`, `_resolve_branch`)
+and `backend/tests/test_activity_flow_events.py` for the covering tests.
+
+## Addendum (2026-07-14) — CPGCarePlan as an additive mirror
+
+Per the CPG IG's knowledge-architecture pages (`documentation-approach-12-05-cpg-careplan.html`:
+CPGCarePlan as the patient-instantiated aggregator of Proposals → Requests → Events),
+each subject enrollment now gets one real `CarePlan`, but strictly as a *write-through
+mirror* — nothing in the app reads it back. `load_chains` and the whole phase state
+machine are untouched; this exists purely as a canonical, inspectable-in-Aidbox
+artifact for "what does this subject's plan look like right now," alongside the
+tag-search-derived state the app actually runs on.
+
+- `ensure_care_plan(client, patient_id, plan_definition_id)` — idempotent
+  (`conditional_create`, keyed on `subject` + `urn:vulcan-soa:care-plan|<protocolPdId>`),
+  called once at enrollment (`enrollment.enroll`). `status: active`, `intent: plan`
+  (R6 `CarePlan.intent` has no "event" value and the comment marks it "expected to
+  be immutable," so it stays fixed rather than tracking any single visit's phase).
+- `_mirror_activity(client, patient_id, plan_definition_id, action_id, *, planned=, performed=)`
+  — best-effort (silently no-ops if no CarePlan is found, e.g. subjects enrolled
+  before this shipped). Finds/creates the `CarePlan.activity[]` entry keyed by
+  `activity.id == action_id` (BackboneElement `id`, same convention as
+  `RequestOrchestration.action[].id` above) and updates whichever field applies.
+- **Field choice, confirmed against the vendored R6-ballot3 core package
+  (`docker/aidbox/hl7.fhir.r6.core-6.0.0-ballot3.tgz`), not just the online docs**:
+  `CarePlan.activity.reference` was renamed to `plannedActivityReference` in R6, and
+  its `targetProfile` does **not** include `Encounter` — only request-side resources
+  (`ServiceRequest | Appointment | Task | ...`). So `plannedActivityReference` is set
+  while the current head is a `ServiceRequest` (`materialize_proposal`, `promote`) or
+  `Appointment` (`schedule_visit`); once `perform()` creates the `Encounter`, that goes
+  into `performedActivity` (`CodeableReference[]`) instead, per the element's own
+  definition text. Both can legitimately coexist (planned = the order, performed =
+  the encounter it produced).
+- `revoke_open_workflow` flips the mirror's `status` to `revoked` on withdrawal
+  (best-effort, same no-op-if-absent rule).
+- Deliberately *not* built: CarePlan as the source of truth for `load_chains` (a much
+  larger, higher-risk change touching the hot path every existing test exercises) —
+  considered and explicitly declined in favor of the additive mirror.
+
+See `ensure_care_plan`/`_mirror_activity` in `activity_flow.py`,
+`backend/tests/test_activity_flow_requests.py`
+(`test_materialize_proposal_mirrors_planned_activity_reference_into_care_plan`), and
+`backend/tests/test_activity_flow_events.py`
+(`test_revoke_open_workflow_revokes_care_plan_mirror`).
+
 ## Out of scope
 
 - CPG profile conformance / R4 compatibility.
-- `RequestOrchestration` grouping (`ServiceRequest.requisition` + the visit request anchor the group).
+- `RequestOrchestration` grouping for the visit+activity promotion cascade
+  (`ServiceRequest.requisition` + the visit request anchor the group) — branch-choice
+  grouping *is* now `RequestOrchestration`-backed, see addendum above.
 - Two-step prepare/initiate promotion endpoints.
 - Activity-level individual gates in the UI (Tasks are tickable, but request promotion
   stays at visit level).
