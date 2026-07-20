@@ -740,6 +740,88 @@ select:focus {
   border: 0;
 }
 
+/* ── Schedule of Activities grid ────────────────────────────── */
+.soa-grid-page {
+  background: #ffffff;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  padding: var(--space-6);
+}
+
+.soa-grid-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.soa-grid-scroll {
+  overflow: auto;
+  max-height: 75vh;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+}
+
+.soa-grid-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.9rem;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.soa-grid-table th,
+.soa-grid-table td {
+  border-bottom: 1px solid var(--border-soft);
+  border-right: 1px solid var(--border-soft);
+  padding: var(--space-2) var(--space-3);
+}
+
+.soa-grid-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--primary-tint);
+  color: var(--primary-dark);
+  font-weight: 600;
+  text-align: center;
+  white-space: normal;
+  min-width: 96px;
+}
+
+.soa-grid-table tbody th {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--surface);
+  text-align: left;
+  font-weight: 500;
+  white-space: normal;
+  max-width: 240px;
+}
+
+.soa-grid-table .soa-grid-corner {
+  z-index: 3;
+  left: 0;
+  text-align: left;
+}
+
+.soa-grid-table tbody tr:nth-child(even) th,
+.soa-grid-table tbody tr:nth-child(even) td {
+  background: var(--bg);
+}
+
+.soa-grid-cell {
+  text-align: center;
+}
+
+.soa-grid-mark {
+  color: var(--primary);
+  font-size: 1.1em;
+}
+
 @media print {
   .app-header,
   .no-print {
@@ -751,13 +833,21 @@ select:focus {
     max-width: none;
   }
 
-  .protocol-tree-page {
+  .protocol-tree-page,
+  .soa-grid-page {
     border: none;
     box-shadow: none;
     padding: 0;
   }
 
-  .protocol-tree-scroll {
+  .protocol-tree-scroll,
+  .soa-grid-scroll {
     overflow: visible;
+    max-height: none;
+  }
+
+  .soa-grid-table thead th,
+  .soa-grid-table tbody th {
+    position: static;
   }
 }

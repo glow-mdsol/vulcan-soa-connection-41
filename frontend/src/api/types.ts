@@ -127,6 +127,25 @@ export type RequestEventResourceType =
 
 export type RequestEventTreeNode = WorkflowTreeNode<RequestEventResourceType>;
 
+export interface SoaGridVisit {
+  actionId: string;
+  title: string;
+}
+
+export interface SoaGridActivity {
+  id: string;
+  label: string;
+  type: "ActivityDefinition" | "Questionnaire";
+}
+
+export interface SoaGridData {
+  id: string;
+  label: string;
+  visits: SoaGridVisit[];
+  activities: SoaGridActivity[];
+  matrix: Record<string, string[]>;
+}
+
 export interface RecordMilestoneResult {
   researchSubjectId: string;
   milestones: SubjectMilestone[];
@@ -150,6 +169,11 @@ export interface DeleteEnrollmentResult {
 }
 
 export interface WithdrawResult {
+  id: string;
+  subjectState: string;
+}
+
+export interface UpdateSubjectStateResult {
   id: string;
   subjectState: string;
 }

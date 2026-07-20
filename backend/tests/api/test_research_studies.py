@@ -355,6 +355,198 @@ def test_protocol_tree_builds_full_resource_tree():
 
 
 @respx.mock
+def test_soa_grid_builds_activities_by_visit_matrix():
+    respx.get("https://aidbox.test/fhir/ResearchStudy/study-1").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "resourceType": "ResearchStudy",
+                "id": "study-1",
+                "title": "UC1 Demo Study",
+                "protocol": [{"reference": "PlanDefinition/plan-1"}],
+            },
+        )
+    )
+    respx.get("https://aidbox.test/fhir/PlanDefinition/plan-1").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "resourceType": "PlanDefinition",
+                "id": "plan-1",
+                "action": [
+                    {
+                        "id": "screening-1",
+                        "title": "Screening",
+                        "definitionCanonical": "http://example.org/PlanDefinition/visit-screening",
+                    },
+                    {
+                        "id": "treatment-1",
+                        "title": "Treatment",
+                        "definitionCanonical": "http://example.org/PlanDefinition/visit-treatment",
+                    },
+                ],
+            },
+        )
+    )
+    respx.get("https://aidbox.test/fhir/PlanDefinition/visit-screening").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "resourceType": "PlanDefinition",
+                "id": "visit-screening",
+                "action": [
+                    {"title": "Vital Signs", "definitionUri": "ActivityDefinition/act-vitals"},
+                    {
+                        "title": "ADAS-Cog",
+                        "definitionCanonical": "http://example.org/soa/Questionnaire/q-adas-cog",
+                    },
+                ],
+            },
+        )
+    )
+    respx.get("https://aidbox.test/fhir/PlanDefinition/visit-treatment").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "resourceType": "PlanDefinition",
+                "id": "visit-treatment",
+                "action": [
+                    # Same activity recurring across visits must collapse to one row.
+                    {"title": "Vital Signs", "definitionUri": "ActivityDefinition/act-vitals"},
+                    {"title": "ECG", "definitionUri": "ActivityDefinition/act-ecg"},
+                ],
+            },
+        )
+    )
+    respx.get("https://aidbox.test/fhir/ActivityDefinition/act-vitals").mock(
+        return_value=httpx.Response(
+            200, json={"resourceType": "ActivityDefinition", "id": "act-vitals", "status": "active"}
+        )
+    )
+    respx.get("https://aidbox.test/fhir/ActivityDefinition/act-ecg").mock(
+        return_value=httpx.Response(
+            200, json={"resourceType": "ActivityDefinition", "id": "act-ecg", "status": "active"}
+        )
+    )
+
+    test_client = _app_client()
+
+    response = test_client.get("/api/research-studies/study-1/soa-grid")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "id": "study-1",
+        "label": "UC1 Demo Study",
+        "visits": [
+            {"actionId": "screening-1", "title": "Screening"},
+            {"actionId": "treatment-1", "title": "Treatment"},
+        ],
+        "activities": [
+            {"id": "act-vitals", "label": "Vital Signs", "type": "ActivityDefinition"},
+            {"id": "q-adas-cog", "label": "ADAS-Cog", "type": "Questionnaire"},
+            {"id": "act-ecg", "label": "ECG", "type": "ActivityDefinition"},
+        ],
+        "matrix": {
+            "act-vitals": ["screening-1", "treatment-1"],
+            "q-adas-cog": ["screening-1"],
+            "act-ecg": ["treatment-1"],
+        },
+    }
+
+
+@respx.mock
+def test_soa_grid_does_not_resolve_activity_observations():
+    # The grid never renders ObservationDefinitions, so it must not fetch them —
+    # both for performance and because a drifting WIP IG can reference definitions
+    # that don't (yet) resolve; that's tolerable here even though it isn't for the
+    # definition tree, which does need them.
+    respx.get("https://aidbox.test/fhir/ResearchStudy/study-1").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "resourceType": "ResearchStudy",
+                "id": "study-1",
+                "title": "UC1 Demo Study",
+                "protocol": [{"reference": "PlanDefinition/plan-1"}],
+            },
+        )
+    )
+    respx.get("https://aidbox.test/fhir/PlanDefinition/plan-1").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "resourceType": "PlanDefinition",
+                "id": "plan-1",
+                "action": [
+                    {
+                        "id": "screening-1",
+                        "title": "Screening",
+                        "definitionCanonical": "http://example.org/PlanDefinition/visit-screening",
+                    }
+                ],
+            },
+        )
+    )
+    respx.get("https://aidbox.test/fhir/PlanDefinition/visit-screening").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "resourceType": "PlanDefinition",
+                "id": "visit-screening",
+                "action": [
+                    {"title": "Hematology Panel", "definitionUri": "ActivityDefinition/act-hema"},
+                ],
+            },
+        )
+    )
+    respx.get("https://aidbox.test/fhir/ActivityDefinition/act-hema").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "resourceType": "ActivityDefinition",
+                "id": "act-hema",
+                "status": "active",
+                # No ObservationDefinition route is mocked at all — if the grid
+                # ever tried to resolve this, respx would raise for the unmocked
+                # request and this test would fail.
+                "observationResultRequirement": ["ObservationDefinition/od-missing"],
+            },
+        )
+    )
+
+    test_client = _app_client()
+
+    response = test_client.get("/api/research-studies/study-1/soa-grid")
+
+    assert response.status_code == 200
+    assert response.json()["activities"] == [
+        {"id": "act-hema", "label": "Hematology Panel", "type": "ActivityDefinition"}
+    ]
+
+
+@respx.mock
+def test_soa_grid_rejects_plan_not_in_study():
+    respx.get("https://aidbox.test/fhir/ResearchStudy/study-1").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "resourceType": "ResearchStudy",
+                "id": "study-1",
+                "protocol": [{"reference": "PlanDefinition/plan-1"}],
+            },
+        )
+    )
+
+    test_client = _app_client()
+
+    response = test_client.get(
+        "/api/research-studies/study-1/soa-grid", params={"planDefinitionId": "plan-99"}
+    )
+
+    assert response.status_code == 400
+
+
+@respx.mock
 def test_protocol_tree_rejects_plan_not_in_study():
     respx.get("https://aidbox.test/fhir/ResearchStudy/study-1").mock(
         return_value=httpx.Response(

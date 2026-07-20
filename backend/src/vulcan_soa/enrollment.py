@@ -183,6 +183,7 @@ async def update_subject_state(
             "startDate": _today(),
         }
     ]
-    return await client.update(
+    updated = await client.update(
         "ResearchSubject", subject_id, subject, if_match=if_match_header(subject)
     )
+    return {"id": updated["id"], "subjectState": new_state}

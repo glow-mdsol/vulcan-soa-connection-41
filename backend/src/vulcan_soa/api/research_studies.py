@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 
-from vulcan_soa.activity_flow import build_protocol_tree
+from vulcan_soa.activity_flow import build_protocol_tree, build_soa_grid
 from vulcan_soa.api.deps import get_fhir_client
 from vulcan_soa.api.models import EnrollRequest
 from vulcan_soa.enrollment import EnrollmentConflict, enroll, subject_summary
@@ -50,6 +50,18 @@ async def get_protocol_tree(
 ) -> dict:
     try:
         return await build_protocol_tree(client, study_id, planDefinitionId)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/{study_id}/soa-grid")
+async def get_soa_grid(
+    study_id: str,
+    planDefinitionId: str | None = None,
+    client: FhirClient = Depends(get_fhir_client),
+) -> dict:
+    try:
+        return await build_soa_grid(client, study_id, planDefinitionId)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { enrollPatient, getContext, getResearchStudy, listPatients } from "../../api/client";
 import { PatientSummary, ResearchStudyDetail } from "../../api/types";
@@ -115,6 +115,18 @@ export default function Enroll() {
   return (
     <div>
       {studyId && <ResearchStudyDetails study={study} error={studyError} />}
+      {studyId && (
+        <div className="workflow-diagram-links">
+          <Link
+            className="workflow-diagram-link"
+            to={`/studies/${studyId}/soa-grid${selectedPlanId ? `?plan=${selectedPlanId}` : ""}`}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            SoA grid ↗
+          </Link>
+        </div>
+      )}
       <div className="enroll-grid">
         <div className="form-card">
           <h2 className="page-title">Enroll a patient</h2>

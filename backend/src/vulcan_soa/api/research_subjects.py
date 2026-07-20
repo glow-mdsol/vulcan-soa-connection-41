@@ -23,11 +23,13 @@ from vulcan_soa.api.models import (
     CompleteVisitRequest,
     RecordMilestoneRequest,
     RespondRequest,
+    UpdateSubjectStateRequest,
 )
 from vulcan_soa.enrollment import (
     EnrollmentConflict,
     assign_subject_identifier,
     subject_identifier_of,
+    update_subject_state,
 )
 from vulcan_soa.fhir_client import FhirClient
 from vulcan_soa.scheduling import load_protocol_graph_for_subject, schedule_response
@@ -88,6 +90,18 @@ async def record_milestone_route(
     client: FhirClient = Depends(get_fhir_client),
 ) -> dict:
     return await record_milestone(client, subject_id, body.milestone, body.date, body.display)
+
+
+@router.post("/{subject_id}/state")
+async def update_subject_state_route(
+    subject_id: str,
+    body: UpdateSubjectStateRequest,
+    client: FhirClient = Depends(get_fhir_client),
+) -> dict:
+    try:
+        return await update_subject_state(client, body.studyId, subject_id, body.state)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/{subject_id}/visits/{action_id}/activities")

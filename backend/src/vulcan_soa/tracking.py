@@ -55,7 +55,8 @@ def subject_state_of(subject: dict) -> str | None:
 def milestones_of(subject: dict) -> list[dict]:
     entries = []
     for entry in subject.get("subjectMilestone", []):
-        codings = entry.get("milestone", {}).get("coding", [])
+        concepts = entry.get("milestone", [])
+        codings = concepts[0].get("coding", []) if concepts else []
         code = codings[0].get("code") if codings else None
         if code:
             entries.append(
@@ -81,12 +82,10 @@ async def record_milestone(
     if display:
         coding["display"] = display
     logger.info("Setting milestone %s for ResearchSubject/%s: %s", milestone, subject_id, date)
-    if existing: 
-        logger.info("Existing milestones: %s", [e.get("milestone", {}).get("coding", [{}])[0].get("code") for e in existing])
-    # R6 ResearchSubject.subjectMilestone: {milestone: CodeableConcept (1..1), date: dateTime}
+    # R6 ResearchSubject.subjectMilestone.milestone is 1..* (array of CodeableConcept).
     subject["subjectMilestone"] = existing + [
         {
-            "milestone": {"coding": [coding]},
+            "milestone": [{"coding": [coding]}],
             "date": date or _today(),
         }
     ]

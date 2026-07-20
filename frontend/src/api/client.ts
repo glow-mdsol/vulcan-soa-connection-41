@@ -10,7 +10,9 @@ import type {
   ResearchStudyDetail,
   ResearchStudySummary,
   Schedule,
+  SoaGridData,
   StudySubjectSummary,
+  UpdateSubjectStateResult,
   VisitActivity,
   VisitDetail,
   WithdrawResult,
@@ -59,6 +61,16 @@ export function getProtocolTree(
     ? `?planDefinitionId=${encodeURIComponent(planDefinitionId)}`
     : "";
   return request<ProtocolTreeNode>(`/api/research-studies/${studyId}/protocol-tree${query}`);
+}
+
+export function getSoaGrid(
+  studyId: string,
+  planDefinitionId: string | null = null,
+): Promise<SoaGridData> {
+  const query = planDefinitionId
+    ? `?planDefinitionId=${encodeURIComponent(planDefinitionId)}`
+    : "";
+  return request<SoaGridData>(`/api/research-studies/${studyId}/soa-grid${query}`);
 }
 
 export function listStudySubjects(studyId: string): Promise<StudySubjectSummary[]> {
@@ -178,6 +190,17 @@ export function completeTask(subjectId: string, actionId: string, taskId: string
 
 export function withdrawSubject(subjectId: string): Promise<WithdrawResult> {
   return postJson<WithdrawResult>(`/api/research-subjects/${subjectId}/withdraw`, undefined);
+}
+
+export function updateSubjectState(
+  studyId: string,
+  subjectId: string,
+  state: string,
+): Promise<UpdateSubjectStateResult> {
+  return postJson<UpdateSubjectStateResult>(`/api/research-subjects/${subjectId}/state`, {
+    studyId,
+    state,
+  });
 }
 
 export type { NextStep, VisitDetail };

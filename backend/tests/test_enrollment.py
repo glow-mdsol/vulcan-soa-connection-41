@@ -129,6 +129,9 @@ async def test_enroll_creates_subject_and_materializes_root_visit():
     assert care_plan_payload["identifier"] == [
         {"system": "urn:vulcan-soa:care-plan", "value": "plan-1"}
     ]
+    # R6 Aidbox rejects an empty array outright ("empty-value"): the field must be
+    # omitted, not sent as `[]`, until the first activity is mirrored in.
+    assert "activity" not in care_plan_payload
     mirrored_payload = json.loads(care_plan_update_route.calls.last.request.content)
     assert mirrored_payload["activity"] == [
         {"id": "screening-1", "plannedActivityReference": {"reference": "ServiceRequest/sr-1"}}

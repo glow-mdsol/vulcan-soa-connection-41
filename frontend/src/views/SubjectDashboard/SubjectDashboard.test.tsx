@@ -13,6 +13,7 @@ import {
   recordMilestone,
   respondToAppointment,
   scheduleVisit,
+  updateSubjectState,
   withdrawSubject,
 } from "../../api/client";
 import SubjectDashboard from "./SubjectDashboard";
@@ -40,6 +41,7 @@ describe("SubjectDashboard", () => {
     vi.mocked(performVisit).mockReset();
     vi.mocked(completeTask).mockReset();
     vi.mocked(recordMilestone).mockReset();
+    vi.mocked(updateSubjectState).mockReset();
     vi.mocked(listVisitActivities).mockReset();
     vi.mocked(listVisitActivities).mockResolvedValue([]);
   });
@@ -166,6 +168,50 @@ describe("SubjectDashboard", () => {
     expect(
       await screen.findByText("Subject is Randomized", { selector: ".milestone-name" }),
     ).toBeInTheDocument();
+  });
+
+  it("updates the subject's state", async () => {
+    vi.mocked(getSchedule).mockResolvedValue({
+      completed: [],
+      current: [],
+      nextSteps: [],
+      ambiguous: false,
+      visits: {},
+      studyId: "study-1",
+      subjectState: "eligible",
+    });
+    vi.mocked(updateSubjectState).mockResolvedValue({ id: "subj-1", subjectState: "on-study" });
+
+    renderAtSubject("subj-1");
+
+    expect(await screen.findByText("Current state: eligible")).toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByLabelText("New state"), "on-study");
+    await userEvent.click(screen.getByRole("button", { name: "Update state" }));
+
+    expect(updateSubjectState).toHaveBeenCalledWith("study-1", "subj-1", "on-study");
+    expect(await screen.findByText("Current state: on-study")).toBeInTheDocument();
+  });
+
+  it("shows an alert when updating the subject's state fails", async () => {
+    vi.mocked(getSchedule).mockResolvedValue({
+      completed: [],
+      current: [],
+      nextSteps: [],
+      ambiguous: false,
+      visits: {},
+      studyId: "study-1",
+      subjectState: "eligible",
+    });
+    vi.mocked(updateSubjectState).mockRejectedValue(new Error("400"));
+
+    renderAtSubject("subj-1");
+
+    await userEvent.selectOptions(await screen.findByLabelText("New state"), "on-study");
+    await userEvent.click(screen.getByRole("button", { name: "Update state" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Could not update the subject's state.",
+    );
   });
 
   it("shows an alert when recording a milestone fails", async () => {

@@ -15,6 +15,7 @@ import {
   listVisitActivities,
   logout,
   recordMilestone,
+  updateSubjectState,
   withdrawSubject,
 } from "./client";
 
@@ -129,6 +130,18 @@ describe("api client", () => {
     expect(init?.body).toBe(
       JSON.stringify({ milestone: "C114209", display: "Subject is Randomized", date: "2026-07-08" }),
     );
+  });
+
+  it("updateSubjectState posts the studyId and state as JSON", async () => {
+    mockFetchOnce({ id: "subj-1", subjectState: "on-study" });
+
+    const result = await updateSubjectState("study-1", "subj-1", "on-study");
+
+    expect(result).toEqual({ id: "subj-1", subjectState: "on-study" });
+    const [url, init] = vi.mocked(fetch).mock.calls[0];
+    expect(url).toBe("/api/research-subjects/subj-1/state");
+    expect(init?.method).toBe("POST");
+    expect(init?.body).toBe(JSON.stringify({ studyId: "study-1", state: "on-study" }));
   });
 
   it("listVisitActivities calls GET /visits/{actionId}/activities", async () => {

@@ -19,6 +19,11 @@ class RecordMilestoneRequest(BaseModel):
     date: str | None = None
 
 
+class UpdateSubjectStateRequest(BaseModel):
+    studyId: str
+    state: str = Field(min_length=1)
+
+
 class CompleteVisitRequest(BaseModel):
     transitionChoice: str | None = None
 

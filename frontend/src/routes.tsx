@@ -8,6 +8,7 @@ import LaunchPending from "./launch/LaunchPending";
 import Enroll from "./views/Enroll/Enroll";
 import DefinitionTree from "./views/ProtocolTree/DefinitionTree";
 import RequestEventTree from "./views/ProtocolTree/RequestEventTree";
+import SoaGrid from "./views/SoaGrid/SoaGrid";
 import StudyWorklist from "./views/StudyWorklist/StudyWorklist";
 import SubjectDashboard from "./views/SubjectDashboard/SubjectDashboard";
 
@@ -51,6 +52,7 @@ export default function AppRoutes() {
       <Route path="/enroll/:studyId" element={<Enroll />} />
       <Route path="/subjects/:subjectId" element={<SubjectDashboard />} />
       <Route path="/studies/:studyId/protocol-tree" element={<DefinitionTree />} />
+      <Route path="/studies/:studyId/soa-grid" element={<SoaGrid />} />
       <Route path="/subjects/:subjectId/request-event-tree" element={<RequestEventTree />} />
     </Routes>
   );

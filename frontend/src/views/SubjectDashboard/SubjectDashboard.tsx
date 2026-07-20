@@ -11,10 +11,12 @@ import {
   recordMilestone,
   respondToAppointment,
   scheduleVisit,
+  updateSubjectState,
   withdrawSubject,
 } from "../../api/client";
 import type { NextStep, Schedule } from "../../api/types";
 import Milestones from "./Milestones";
+import SubjectStateControl from "./SubjectStateControl";
 import Timeline from "./Timeline";
 import VisitActivities from "./VisitActivities";
 import VisitCard from "./VisitCard";
@@ -118,6 +120,22 @@ export default function SubjectDashboard() {
     }
   }
 
+  async function handleUpdateSubjectState(state: string) {
+    if (!subjectId || !schedule?.studyId) {
+      return;
+    }
+    setBusy(true);
+    try {
+      const result = await updateSubjectState(schedule.studyId, subjectId, state);
+      setSchedule((current) => (current ? { ...current, subjectState: result.subjectState } : current));
+      setError(null);
+    } catch {
+      setError("Could not update the subject's state.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleWithdraw() {
     if (!subjectId) {
       return;
@@ -183,6 +201,11 @@ export default function SubjectDashboard() {
             milestones={schedule.milestones ?? []}
             busy={busy}
             onRecord={handleRecordMilestone}
+          />
+          <SubjectStateControl
+            currentState={schedule.subjectState ?? null}
+            busy={busy}
+            onUpdate={handleUpdateSubjectState}
           />
         </div>
 

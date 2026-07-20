@@ -338,6 +338,22 @@ describe("Enroll", () => {
     ).toBeInTheDocument();
   });
 
+  it("links to the SoA grid for the study, including the selected protocol", async () => {
+    vi.mocked(getContext).mockResolvedValue({ patientId: null, researchStudyId: null });
+    vi.mocked(getResearchStudy).mockResolvedValue({
+      id: "study-1",
+      title: "UC1 Demo Study",
+      status: "active",
+      protocolReferences: ["PlanDefinition/plan-1"],
+    });
+    vi.mocked(listPatients).mockResolvedValue([]);
+
+    renderAtStudy("study-1");
+
+    const link = await screen.findByRole("link", { name: "SoA grid ↗" });
+    expect(link).toHaveAttribute("href", "/studies/study-1/soa-grid?plan=plan-1");
+  });
+
   it("shows a study details error when the study request fails", async () => {
     vi.mocked(getContext).mockResolvedValue({ patientId: null, researchStudyId: null });
     vi.mocked(getResearchStudy).mockRejectedValue(new Error("network error"));

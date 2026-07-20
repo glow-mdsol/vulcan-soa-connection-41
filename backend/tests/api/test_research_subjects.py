@@ -44,15 +44,19 @@ SUBJECT = {
     ],
     "subjectMilestone": [
         {
-            "milestone": {
-                "coding": [
-                    {
-                        "system": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl",
-                        "code": "C16735",
-                        "display": "Informed Consent",
-                    }
-                ]
-            },
+            # R6: ResearchSubject.subjectMilestone.milestone is 1..* (array of
+            # CodeableConcept), not a single CodeableConcept.
+            "milestone": [
+                {
+                    "coding": [
+                        {
+                            "system": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl",
+                            "code": "C16735",
+                            "display": "Informed Consent",
+                        }
+                    ]
+                }
+            ],
             "date": "2026-07-01",
         }
     ],
@@ -157,15 +161,17 @@ def test_record_milestone_appends_to_subject_milestones():
         subjectMilestone=SUBJECT["subjectMilestone"]
         + [
             {
-                "milestone": {
-                    "coding": [
-                        {
-                            "system": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl",
-                            "code": "C114209",
-                            "display": "Subject is Randomized",
-                        }
-                    ]
-                },
+                "milestone": [
+                    {
+                        "coding": [
+                            {
+                                "system": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl",
+                                "code": "C114209",
+                                "display": "Subject is Randomized",
+                            }
+                        ]
+                    }
+                ],
                 "date": "2026-07-08",
             }
         ],
@@ -196,11 +202,15 @@ def test_record_milestone_appends_to_subject_milestones():
     sent = put_route.calls.last.request
     assert sent.headers["If-Match"] == 'W/"3"'
     sent_milestones = json.loads(sent.content)["subjectMilestone"]
-    assert sent_milestones[-1]["milestone"]["coding"] == [
+    assert sent_milestones[-1]["milestone"] == [
         {
-            "system": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl",
-            "code": "C114209",
-            "display": "Subject is Randomized",
+            "coding": [
+                {
+                    "system": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl",
+                    "code": "C114209",
+                    "display": "Subject is Randomized",
+                }
+            ]
         }
     ]
 
@@ -217,6 +227,79 @@ def test_record_milestone_rejects_empty_milestone():
     )
 
     assert response.status_code == 422
+
+
+@respx.mock
+def test_update_subject_state_route_appends_state_entry():
+    respx.get("https://aidbox.test/fhir/ResearchSubject/subj-1").mock(
+        return_value=httpx.Response(200, json=dict(SUBJECT, meta={"versionId": "4"}))
+    )
+    update_route = respx.put("https://aidbox.test/fhir/ResearchSubject/subj-1").mock(
+        return_value=httpx.Response(200, json=dict(SUBJECT, id="subj-1"))
+    )
+
+    app = _build_test_app()
+    app.dependency_overrides[get_fhir_client] = lambda: FhirClient(
+        base_url="https://aidbox.test/fhir", access_token="tok-1"
+    )
+    test_client = TestClient(app)
+
+    response = test_client.post(
+        "/api/research-subjects/subj-1/state",
+        json={"studyId": "study-1", "state": "on-study"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"id": "subj-1", "subjectState": "on-study"}
+    sent = update_route.calls.last.request
+    assert sent.headers["If-Match"] == 'W/"4"'
+    sent_states = json.loads(sent.content)["subjectState"]
+    assert sent_states[-1]["code"]["coding"] == [
+        {
+            "system": "http://terminology.hl7.org/CodeSystem/research-subject-state",
+            "code": "on-study",
+        }
+    ]
+
+
+@respx.mock
+def test_update_subject_state_route_rejects_unknown_state():
+    respx.get("https://aidbox.test/fhir/ResearchSubject/subj-1").mock(
+        return_value=httpx.Response(200, json=SUBJECT)
+    )
+
+    app = _build_test_app()
+    app.dependency_overrides[get_fhir_client] = lambda: FhirClient(
+        base_url="https://aidbox.test/fhir", access_token="tok-1"
+    )
+    test_client = TestClient(app)
+
+    response = test_client.post(
+        "/api/research-subjects/subj-1/state",
+        json={"studyId": "study-1", "state": "in-screening"},
+    )
+
+    assert response.status_code == 400
+
+
+@respx.mock
+def test_update_subject_state_route_rejects_subject_from_another_study():
+    respx.get("https://aidbox.test/fhir/ResearchSubject/subj-1").mock(
+        return_value=httpx.Response(200, json=SUBJECT)
+    )
+
+    app = _build_test_app()
+    app.dependency_overrides[get_fhir_client] = lambda: FhirClient(
+        base_url="https://aidbox.test/fhir", access_token="tok-1"
+    )
+    test_client = TestClient(app)
+
+    response = test_client.post(
+        "/api/research-subjects/subj-1/state",
+        json={"studyId": "some-other-study", "state": "on-study"},
+    )
+
+    assert response.status_code == 400
 
 
 @respx.mock

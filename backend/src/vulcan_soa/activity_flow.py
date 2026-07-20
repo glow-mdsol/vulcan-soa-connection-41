@@ -211,7 +211,8 @@ async def ensure_care_plan(client: FhirClient, patient_id: str, plan_definition_
             "intent": "plan",
             "subject": {"reference": f"Patient/{patient_id}"},
             "identifier": [{"system": CARE_PLAN_TAG_SYSTEM, "value": plan_definition_id}],
-            "activity": [],
+            # No `activity` key: Aidbox's R6 schema rejects an empty array outright
+            # ("empty-value"). `_mirror_activity` adds the key once there's a real entry.
         },
         _care_plan_search_params(patient_id, plan_definition_id),
     )
@@ -341,7 +342,9 @@ async def _expected_observations(client: FhirClient, definition: dict) -> list[d
     return observations
 
 
-async def _activity_node(client: FhirClient, action: dict) -> dict | None:
+async def _activity_node(
+    client: FhirClient, action: dict, *, include_observations: bool = True
+) -> dict | None:
     uri = action.get("definitionUri") or action.get("definitionCanonical") or ""
     questionnaire_id = _resource_id_from_uri(uri, "Questionnaire")
     activity_definition_id = _resource_id_from_uri(uri, "ActivityDefinition")
@@ -354,11 +357,14 @@ async def _activity_node(client: FhirClient, action: dict) -> dict | None:
         }
     if activity_definition_id is not None:
         definition = await client.read("ActivityDefinition", activity_definition_id)
+        observations = (
+            await _expected_observations(client, definition) if include_observations else []
+        )
         return {
             "id": definition["id"],
             "title": action.get("title") or definition.get("title") or definition["id"],
             "type": "ActivityDefinition",
-            "observations": await _expected_observations(client, definition),
+            "observations": observations,
         }
     return None
 
@@ -449,6 +455,46 @@ async def build_protocol_tree(
                 "children": visit_children,
             }
         ],
+    }
+
+
+async def build_soa_grid(
+    client: FhirClient, study_id: str, plan_definition_id: str | None = None
+) -> dict:
+    """Activities-by-visit matrix for the classic Schedule of Activities table.
+
+    Visit order follows the root PlanDefinition's own action[] declaration order
+    (same as `build_protocol_tree`) rather than a graph traversal — the protocol
+    graph branches, and a SoA grid assumes one canonical column sequence.
+    """
+    study = await client.read("ResearchStudy", study_id)
+    graph, plan_definition_id = await load_protocol_graph(client, study_id, plan_definition_id)
+
+    visits = [{"actionId": action_id, "title": node.title} for action_id, node in graph.nodes.items()]
+
+    activities: dict[str, dict] = {}
+    matrix: dict[str, list[str]] = {}
+    for action_id, node in graph.nodes.items():
+        visit_pd_id = _resource_id_from_uri(node.definition_uri or "", "PlanDefinition")
+        if visit_pd_id is None:
+            continue
+        visit_pd = await client.read("PlanDefinition", visit_pd_id)
+        for sub_action in visit_pd.get("action", []):
+            activity = await _activity_node(client, sub_action, include_observations=False)
+            if activity is None:
+                continue
+            activities.setdefault(
+                activity["id"],
+                {"id": activity["id"], "label": activity["title"], "type": activity["type"]},
+            )
+            matrix.setdefault(activity["id"], []).append(action_id)
+
+    return {
+        "id": study_id,
+        "label": study.get("title", study_id),
+        "visits": visits,
+        "activities": list(activities.values()),
+        "matrix": matrix,
     }
 
 

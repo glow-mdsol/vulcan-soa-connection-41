@@ -65,6 +65,16 @@ export default function VisitCard({
               Definition diagram ↗
             </Link>
           )}
+          {studyId && (
+            <Link
+              className="workflow-diagram-link"
+              to={`/studies/${studyId}/soa-grid${planDefinitionId ? `?plan=${planDefinitionId}` : ""}`}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              SoA grid ↗
+            </Link>
+          )}
           {subjectId && (
             <Link
               className="workflow-diagram-link"
